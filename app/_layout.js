@@ -5,6 +5,9 @@ export default function RootLayout() {
   return (
     <SoilProvider>  
       <Stack>
+        {/* Splash Screen */}
+        <Stack.Screen name="SplashScreen" options={{ headerShown: false }} />
+
         {/* Auth Screens */}
         <Stack.Screen name="LoginScreen" options={{ headerShown: false }} />
         <Stack.Screen name="SignupScreen" options={{ headerShown: false }} />

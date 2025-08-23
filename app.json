@@ -1,10 +1,12 @@
 {
   "expo": {
+    "backgroundColor": "#0b1e0a", 
     "scheme": "acme",
     "plugins": [
       "expo-router"
     ],
-    "name": "react_native_farmulate",
+    "icon": "../assets/icon.png",
+    "name": "Farmulate",
     "slug": "react_native_farmulate"
   }
 }

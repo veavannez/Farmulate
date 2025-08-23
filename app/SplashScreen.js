@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from "react";
-import { Animated, View, Image, StyleSheet } from "react-native";
+import { Animated, View, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 
 const SplashScreen = () => {
@@ -10,29 +10,29 @@ const SplashScreen = () => {
     setTimeout(() => {
       Animated.timing(opacity, {
         toValue: 0,
-        duration: 5000,
+        duration: 2000, // fade duration
         useNativeDriver: true,
       }).start(() => {
-        router.replace("/LoginScreen"); // go to login
+        router.replace("/LoginScreen"); // go to login after fade
       });
-    }, 2000);
+    }, 2000); // how long splash stays before fade
   }, []);
 
   return (
-    <Animated.View style={[styles.container, { opacity }]}>
-      <Image
+    <View style={styles.container}>
+      <Animated.Image
         source={require("../assets/farmulate-logo.png")}
-        style={styles.logo}
+        style={[styles.logo, { opacity }]}
         resizeMode="contain"
       />
-    </Animated.View>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0b1e0a",
+    backgroundColor: "#0b1e0a", // stays solid green
     justifyContent: "center",
     alignItems: "center",
   },
