@@ -1,5 +1,11 @@
 import React from "react";
 import { View, Text, StyleSheet, Dimensions } from "react-native";
+import {
+  getPhCategory,
+  getPhosphorusCategory,
+  getNitrogenCategory,
+  getPotassiumCategory,
+} from "../utils/helpers";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -15,10 +21,26 @@ export default function SoilNutrientsCard({ data }) {
   }
 
   const inputs = [
-    { label: "Nitrogen", value: data.nitrogen },
-    { label: "Phosphorus", value: data.phosphorus },
-    { label: "Potassium", value: data.potassium },
-    { label: "Soil pH", value: data.phLevel },
+    {
+      label: "Nitrogen",
+      value: data.nitrogen,
+      category: getNitrogenCategory(data.nitrogen),
+    },
+    {
+      label: "Phosphorus",
+      value: data.phosphorus,
+      category: getPhosphorusCategory(data.phosphorus, data.phLevel),
+    },
+    {
+      label: "Potassium",
+      value: data.potassium,
+      category: getPotassiumCategory(data.potassium),
+    },
+    {
+      label: "Soil pH",
+      value: data.phLevel,
+      category: getPhCategory(data.phLevel),
+    },
   ];
 
   return (
@@ -26,17 +48,34 @@ export default function SoilNutrientsCard({ data }) {
       {/* Nutrient grid */}
       <View style={styles.gridRow}>
         {inputs.slice(0, 2).map((n, idx) => (
-          <View key={idx} style={[styles.card, { backgroundColor: "#5f8d4e" }]}>
+          <View
+            key={idx}
+            style={[
+              styles.card,
+              { backgroundColor: n.category.color, shadowColor: n.category.color },
+            ]}
+          >
             <Text style={styles.value}>{n.value}</Text>
-            <Text style={styles.label}>{n.label}</Text>
+            <Text style={styles.label}>
+              {n.label} {"\n"}({n.category.label})
+            </Text>
           </View>
         ))}
       </View>
+
       <View style={styles.gridRow}>
         {inputs.slice(2, 4).map((n, idx) => (
-          <View key={idx} style={[styles.card, { backgroundColor: "#2e7d32" }]}>
+          <View
+            key={idx}
+            style={[
+              styles.card,
+              { backgroundColor: n.category.color, shadowColor: n.category.color },
+            ]}
+          >
             <Text style={styles.value}>{n.value}</Text>
-            <Text style={styles.label}>{n.label}</Text>
+            <Text style={styles.label}>
+              {n.label} {"\n"}({n.category.label})
+            </Text>
           </View>
         ))}
       </View>
@@ -53,7 +92,7 @@ export default function SoilNutrientsCard({ data }) {
 
 const styles = StyleSheet.create({
   panel: {
-    backgroundColor: "#cfcfcf",
+    backgroundColor: "#f5f5f5",
     borderRadius: 24,
     padding: 14,
     marginTop: 16,
@@ -63,7 +102,11 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     alignSelf: "center",
   },
-  gridRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 12 },
+  gridRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
   card: {
     width: "48%",
     height: 165,
@@ -71,26 +114,36 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 10,
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 4, // for Android shadow
   },
   value: { fontSize: 42, fontWeight: "900", color: "#fff" },
-  label: { fontSize: 18, fontWeight: "800", color: "#fff", marginTop: 2 },
+  label: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#fff",
+    textAlign: "center",
+    marginTop: 4,
+  },
   pill: {
-    marginTop: 12,
-    backgroundColor: "#0f3b17",
-    paddingVertical: 10,
-    paddingHorizontal: 14,
+    marginTop: 16,
+    backgroundColor: "#1b5e20",
+    paddingVertical: 12,
+    paddingHorizontal: 18,
     borderRadius: 999,
     alignSelf: "center",
+    shadowColor: "#1b5e20",
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
   },
-  pillText: { color: "#fff", fontWeight: "600" },
+  pillText: { color: "#fff", fontWeight: "700", fontSize: 15 },
   emptyContainer: {
     height: 120,
     justifyContent: "center",
     alignItems: "center",
   },
-  emptyText: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#555",
-  },
+  emptyText: { fontSize: 18, fontWeight: "600", color: "#555" },
 });

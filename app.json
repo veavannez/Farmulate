@@ -1,12 +1,17 @@
 {
   "expo": {
-    "backgroundColor": "#0b1e0a", 
+    "name": "Farmulate",
+    "slug": "react_native_farmulate",
     "scheme": "acme",
+    "backgroundColor": "#0b1e0a",
     "plugins": [
       "expo-router"
     ],
-    "icon": "../assets/icon.png",
-    "name": "Farmulate",
-    "slug": "react_native_farmulate"
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash-icon.png", 
+      "resizeMode": "contain", 
+      "backgroundColor": "#0b1e0a"
+    }
   }
 }

@@ -81,7 +81,7 @@ const MainScreen = () => {
     }
   };
 
-  const handleFarmulate = () => {
+const handleFarmulate = () => {
   const missing = [];
   if (!nitrogen) missing.push("Nitrogen");
   if (!phosphorus) missing.push("Phosphorus");
@@ -96,6 +96,25 @@ const MainScreen = () => {
     );
     return;
   }
+
+  // Example: normally here you would call your ML model
+  const results = {
+    soilTexture: "Loamy",
+    soilHealth: "Moderate",
+    nitrogen,
+    phosphorus,
+    potassium,
+    phLevel,
+    insight: "Apply phosphorus-rich fertilizer to balance nutrient levels.",
+    lastCrop: "Tomatoes",
+    nextCrop: "Carrots",
+    companions: ["Marigold", "Rosemary", "Sage", "Oregano", "Lettuce"],
+    avoid: ["Potatoes", "Dill", "Parsley", "Broccoli"],
+  };
+
+  setSoilData(results);
+
+
 
   const newData = { nitrogen, phosphorus, potassium, phLevel, soilImage };
   setSoilData(newData);
