@@ -13,7 +13,8 @@ import {
   ActionSheetIOS,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
-import { useSoil } from "../../context/SoilContext"; // 👈 import hook
+import { useRouter } from "expo-router"; // ✅ router import
+import { useSoil } from "../../context/SoilContext"; // 👈 your context
 
 const MainScreen = () => {
   const [nitrogen, setNitrogen] = useState("");
@@ -22,7 +23,8 @@ const MainScreen = () => {
   const [phLevel, setPhLevel] = useState("");
   const [soilImage, setSoilImage] = useState(null);
 
-  const { setSoilData } = useSoil(); // 👈 get setter from context
+  const { setSoilData } = useSoil();
+  const router = useRouter(); // ✅ init router
 
   const pickImage = async (fromCamera = false) => {
     try {
@@ -69,63 +71,55 @@ const MainScreen = () => {
         }
       );
     } else {
-      Alert.alert(
-        "Select Image",
-        "Choose an option",
-        [
-          { text: "Take Photo", onPress: () => pickImage(true) },
-          { text: "Choose from Gallery", onPress: () => pickImage(false) },
-          { text: "Cancel", style: "cancel" },
-        ]
-      );
+      Alert.alert("Select Image", "Choose an option", [
+        { text: "Take Photo", onPress: () => pickImage(true) },
+        { text: "Choose from Gallery", onPress: () => pickImage(false) },
+        { text: "Cancel", style: "cancel" },
+      ]);
     }
   };
 
-const handleFarmulate = () => {
-  const missing = [];
-  if (!nitrogen) missing.push("Nitrogen");
-  if (!phosphorus) missing.push("Phosphorus");
-  if (!potassium) missing.push("Potassium");
-  if (!phLevel) missing.push("pH Level");
-  if (!soilImage) missing.push("Soil Image");
+  const handleFarmulate = () => {
+    const missing = [];
+    if (!nitrogen) missing.push("Nitrogen");
+    if (!phosphorus) missing.push("Phosphorus");
+    if (!potassium) missing.push("Potassium");
+    if (!phLevel) missing.push("pH Level");
+    if (!soilImage) missing.push("Soil Image");
 
-  if (missing.length > 0) {
-    Alert.alert(
-      "Missing Fields",
-      `Please fill in the following: ${missing.join(", ")}.`
-    );
-    return;
-  }
+    if (missing.length > 0) {
+      Alert.alert("Missing Fields", `Please fill in: ${missing.join(", ")}`);
+      return;
+    }
 
-  // Example: normally here you would call your ML model
-  const results = {
-    soilTexture: "Loamy",
-    soilHealth: "Moderate",
-    nitrogen,
-    phosphorus,
-    potassium,
-    phLevel,
-    insight: "Apply phosphorus-rich fertilizer to balance nutrient levels.",
-    lastCrop: "Tomatoes",
-    nextCrop: "Carrots",
-    companions: ["Marigold", "Rosemary", "Sage", "Oregano", "Lettuce"],
-    avoid: ["Potatoes", "Dill", "Parsley", "Broccoli"],
+    // Example dummy results (replace with ML model later)
+    const results = {
+      soilTexture: "Loamy",
+      soilHealth: "Moderate",
+      nitrogen,
+      phosphorus,
+      potassium,
+      phLevel,
+      insight: "Apply phosphorus-rich fertilizer to balance nutrient levels.",
+      lastCrop: "Tomatoes",
+      nextCrop: "Carrots",
+      companions: ["Marigold", "Rosemary", "Sage", "Oregano", "Lettuce"],
+      avoid: ["Potatoes", "Dill", "Parsley", "Broccoli"],
+      soilImage,
+    };
+
+    setSoilData(results);
+
+    // ✅ Navigate to report screen with params
+    router.push("/report");
+
+    // Clear inputs
+    setNitrogen("");
+    setPhosphorus("");
+    setPotassium("");
+    setPhLevel("");
+    setSoilImage(null);
   };
-
-  setSoilData(results);
-
-
-
-  const newData = { nitrogen, phosphorus, potassium, phLevel, soilImage };
-  setSoilData(newData);
-  Alert.alert("Success", "Soil Information submitted!");
-
-  setNitrogen("");
-  setPhosphorus("");
-  setPotassium("");
-  setPhLevel("");
-  setSoilImage(null);
-};
 
   return (
     <KeyboardAvoidingView
@@ -150,7 +144,7 @@ const handleFarmulate = () => {
           />
         </View>
 
-        {/* Card with inputs */}
+        {/* Card */}
         <View style={styles.card}>
           <Text style={styles.title}>Soil Information</Text>
 
@@ -190,36 +184,26 @@ const handleFarmulate = () => {
             onChangeText={setPhLevel}
           />
 
-          {/* Single Image Button */}
+          {/* Upload */}
           <TouchableOpacity style={styles.uploadBtn} onPress={handleImageSelection}>
             <Text style={styles.uploadText}>
               {soilImage ? "✅ Change Soil Image" : "📷 Add Soil Image"}
             </Text>
           </TouchableOpacity>
 
-          {/* Preview with Remove option */}
+          {/* Preview */}
           {soilImage && (
             <View style={styles.previewContainer}>
-              <Image
-                source={{ uri: soilImage }}
-                style={styles.preview}
-                resizeMode="cover"
-              />
-              <TouchableOpacity
-                style={styles.removeBtn}
-                onPress={() => setSoilImage(null)}
-              >
+              <Image source={{ uri: soilImage }} style={styles.preview} resizeMode="cover" />
+              <TouchableOpacity style={styles.removeBtn} onPress={() => setSoilImage(null)}>
                 <Text style={styles.removeText}>❌</Text>
               </TouchableOpacity>
             </View>
           )}
         </View>
 
-        {/* Farmulate button (separated) */}
-        <TouchableOpacity
-          style={styles.button}
-          onPress={handleFarmulate}
-        >
+        {/* Farmulate */}
+        <TouchableOpacity style={styles.button} onPress={handleFarmulate}>
           <Text style={styles.buttonText}>FARMULATE</Text>
         </TouchableOpacity>
       </ScrollView>
@@ -230,7 +214,7 @@ const handleFarmulate = () => {
 const styles = StyleSheet.create({
   scrollContainer: {
     flexGrow: 1,
-    backgroundColor: "#ffff",
+    backgroundColor: "#fff",
     alignItems: "center",
     justifyContent: "center",
     padding: 20,
@@ -240,16 +224,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: -15,
   },
-  decorLeft: {
-    width: 100,
-    height: 40,
-    marginRight: 100,
-  },
-  decorRight: {
-    width: 100,
-    height: 40,
-    transform: [{ scaleX: -1 }],
-  },
+  decorLeft: { width: 100, height: 40, marginRight: 100 },
+  decorRight: { width: 100, height: 40, transform: [{ scaleX: -1 }] },
   card: {
     width: "100%",
     backgroundColor: "#0a2f0f",
@@ -257,18 +233,8 @@ const styles = StyleSheet.create({
     padding: 20,
     marginTop: 10,
   },
-  title: {
-    fontSize: 22,
-    fontWeight: "bold",
-    color: "#fff",
-    textAlign: "center",
-    marginBottom: 20,
-  },
-  label: {
-    fontWeight: "bold",
-    marginBottom: 5,
-    color: "#fff",
-  },
+  title: { fontSize: 22, fontWeight: "bold", color: "#fff", textAlign: "center", marginBottom: 20 },
+  label: { fontWeight: "bold", marginBottom: 5, color: "#fff" },
   input: {
     backgroundColor: "#fff",
     padding: 12,
@@ -284,46 +250,13 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     marginTop: 10,
   },
-  uploadText: {
-    color: "#fff",
-    fontWeight: "600",
-    fontSize: 16,
-  },
-  previewContainer: {
-    marginTop: 10,
-    alignItems: "center",
-    position: "relative",
-  },
-  preview: {
-    width: "100%",
-    height: 150,
-    borderRadius: 10,
-  },
-  removeBtn: {
-    position: "absolute",
-    top: 5,
-    right: 5,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    borderRadius: 20,
-    padding: 5,
-  },
-  removeText: {
-    color: "#fff",
-    fontSize: 14,
-  },
-  button: {
-    backgroundColor: "#004d00",
-    padding: 15,
-    borderRadius: 25,
-    alignItems: "center",
-    marginTop: 20,
-    width: "90%",
-  },
-  buttonText: {
-    color: "#fff",
-    fontSize: 18,
-    fontWeight: "bold",
-  },
+  uploadText: { color: "#fff", fontWeight: "600", fontSize: 16 },
+  previewContainer: { marginTop: 10, alignItems: "center", position: "relative" },
+  preview: { width: "100%", height: 150, borderRadius: 10 },
+  removeBtn: { position: "absolute", top: 5, right: 5, backgroundColor: "rgba(0,0,0,0.6)", borderRadius: 20, padding: 5 },
+  removeText: { color: "#fff", fontSize: 14 },
+  button: { backgroundColor: "#004d00", padding: 15, borderRadius: 25, alignItems: "center", marginTop: 20, width: "90%" },
+  buttonText: { color: "#fff", fontSize: 18, fontWeight: "bold" },
 });
 
 export default MainScreen;

@@ -1,4 +1,4 @@
-// app/(tabs)/report.js
+// app/report.js
 import React, { useEffect } from "react";
 import {
   View,
@@ -19,17 +19,23 @@ import {
 } from "../utils/helpers";
 
 const ReportScreen = () => {
-  const { soilData, addToHistory } = useSoil();
+  const { soilData, addToHistory, history } = useSoil();
   const router = useRouter();
 
-  // ✅ Save report to history when opened
   useEffect(() => {
     if (soilData) {
-      addToHistory({
-        ...soilData,
-        id: soilData.id || Date.now(), // unique ID
-        generatedAt: soilData.generatedAt || new Date().toISOString(),
-      });
+      const reportId = soilData.id || Date.now().toString();
+
+      // ✅ Only add if it doesn't already exist in history
+      const alreadyExists = history.some((h) => h.id === reportId);
+
+      if (!alreadyExists) {
+        addToHistory({
+          ...soilData,
+          id: reportId,
+          generatedAt: soilData.generatedAt || new Date().toISOString(),
+        });
+      }
     }
   }, [soilData]);
 
@@ -47,7 +53,6 @@ const ReportScreen = () => {
     );
   }
 
-  // Get categories
   const phCategory = getPhCategory(soilData.phLevel);
   const phosphorusCategory = getPhosphorusCategory(
     soilData.phosphorus,
@@ -60,17 +65,22 @@ const ReportScreen = () => {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#fff" />
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButtonFloat}>
+          <Ionicons name="arrow-back" size={22} color="#2e7d32" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Soil Report</Text>
+
+        <Image
+          source={require("../assets/farmulate-logo.png")}
+          style={styles.logo}
+          resizeMode="contain"
+        />
       </View>
+
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Soil Report */}
         <Text style={styles.sectionTitle}>
-          <MaterialCommunityIcons name="sprout" size={22} color="#2e7d32" /> Soil
-          Report
+          <MaterialCommunityIcons name="sprout" size={22} color="#2e7d32" /> Soil Report
         </Text>
 
         {/* Soil Image + Texture */}
@@ -82,73 +92,37 @@ const ReportScreen = () => {
               resizeMode="cover"
             />
           )}
-          <View style={styles.tag}>
-            <Text style={styles.tagText}>
-              Soil Texture: {soilData.soilTexture}
-            </Text>
+          <View style={styles.tagGreen}>
+            <Text style={styles.tagText}>Soil Texture: {soilData.soilTexture}</Text>
           </View>
         </View>
 
-        {/* Soil Health + Nutrients */}
+        {/* Nutrients only */}
         <View style={styles.card}>
-          <View style={styles.tagYellow}>
-            <Text style={styles.tagText}>
-              Soil Health: {soilData.soilHealth}
-            </Text>
-          </View>
-
-          {/* Nutrient Grid */}
           <View style={styles.nutrientGrid}>
-            <View
-              style={[
-                styles.nutrientBox,
-                { backgroundColor: nitrogenCategory.color },
-              ]}
-            >
-              <Ionicons name="leaf" size={26} color="#fff" />
+            <View style={[styles.nutrientBox, { backgroundColor: nitrogenCategory.color }]}>
+              <Ionicons name="leaf" size={24} color="#fff" />
               <Text style={styles.nutrientValue}>{soilData.nitrogen}</Text>
               <Text style={styles.nutrientLabel}>Nitrogen</Text>
-              <Text style={styles.nutrientStatus}>
-                {nitrogenCategory.label}
-              </Text>
+              <Text style={styles.nutrientStatus}>{nitrogenCategory.label}</Text>
             </View>
 
-            <View
-              style={[
-                styles.nutrientBox,
-                { backgroundColor: phosphorusCategory.color },
-              ]}
-            >
-              <MaterialCommunityIcons name="test-tube" size={26} color="#fff" />
+            <View style={[styles.nutrientBox, { backgroundColor: phosphorusCategory.color }]}>
+              <MaterialCommunityIcons name="beaker-outline" size={24} color="#fff" />
               <Text style={styles.nutrientValue}>{soilData.phosphorus}</Text>
               <Text style={styles.nutrientLabel}>Phosphorus</Text>
-              <Text style={styles.nutrientStatus}>
-                {phosphorusCategory.label}
-              </Text>
+              <Text style={styles.nutrientStatus}>{phosphorusCategory.label}</Text>
             </View>
 
-            <View
-              style={[
-                styles.nutrientBox,
-                { backgroundColor: potassiumCategory.color },
-              ]}
-            >
-              <MaterialCommunityIcons
-                name="chemical-weapon"
-                size={26}
-                color="#fff"
-              />
+            <View style={[styles.nutrientBox, { backgroundColor: potassiumCategory.color }]}>
+              <MaterialCommunityIcons name="flask" size={24} color="#fff" />
               <Text style={styles.nutrientValue}>{soilData.potassium}</Text>
               <Text style={styles.nutrientLabel}>Potassium</Text>
-              <Text style={styles.nutrientStatus}>
-                {potassiumCategory.label}
-              </Text>
+              <Text style={styles.nutrientStatus}>{potassiumCategory.label}</Text>
             </View>
 
-            <View
-              style={[styles.nutrientBox, { backgroundColor: phCategory.color }]}
-            >
-              <Ionicons name="water" size={26} color="#fff" />
+            <View style={[styles.nutrientBox, { backgroundColor: phCategory.color }]}>
+              <Ionicons name="water" size={24} color="#fff" />
               <Text style={styles.nutrientValue}>{soilData.phLevel}</Text>
               <Text style={styles.nutrientLabel}>pH</Text>
               <Text style={styles.nutrientStatus}>{phCategory.label}</Text>
@@ -164,8 +138,7 @@ const ReportScreen = () => {
 
         {/* Crop Rotation */}
         <Text style={styles.sectionTitle}>
-          <MaterialCommunityIcons name="repeat" size={22} color="#2e7d32" /> Crop
-          Rotation
+          <MaterialCommunityIcons name="repeat" size={22} color="#2e7d32" /> Crop Rotation
         </Text>
         <View style={styles.highlightCard}>
           <Text style={styles.subHeader}>Recommended Next Crop</Text>
@@ -176,23 +149,28 @@ const ReportScreen = () => {
 
         {/* Companion Planting */}
         <Text style={styles.sectionTitle}>
-          <MaterialCommunityIcons name="flower" size={22} color="#2e7d32" />{" "}
-          Companion Planting
+          <MaterialCommunityIcons name="flower" size={22} color="#2e7d32" /> Companion Planting
         </Text>
         <View style={styles.card}>
-          <View style={styles.companionRow}>
-            <View style={styles.companionColumn}>
-              <Text style={styles.subHeader}>Best Companions</Text>
+          <View style={styles.companionHeaderRow}>
+            <Text style={[styles.subHeader, { flex: 1, textAlign: "center" }]}>
+              Best Companions
+            </Text>
+            <Text style={[styles.subHeader, { flex: 1, textAlign: "center" }]}>
+              Crops to Avoid
+            </Text>
+          </View>
+          <View style={styles.companionListRow}>
+            <View style={{ flex: 1 }}>
               {soilData.companions?.map((c, idx) => (
-                <Text key={idx} style={styles.goodCrop}>
+                <Text key={`companion-${idx}`} style={styles.goodCropItem}>
                   {c}
                 </Text>
               ))}
             </View>
-            <View style={styles.companionColumn}>
-              <Text style={styles.subHeader}>Crops to Avoid</Text>
+            <View style={{ flex: 1 }}>
               {soilData.avoid?.map((a, idx) => (
-                <Text key={idx} style={styles.badCrop}>
+                <Text key={`avoid-${idx}`} style={styles.badCropItem}>
                   {a}
                 </Text>
               ))}
@@ -203,3 +181,164 @@ const ReportScreen = () => {
     </View>
   );
 };
+
+export default ReportScreen;
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#f5f5f5" },
+  header: {
+    flexDirection: "row",
+    backgroundColor: "#002d00",
+    justifyContent: "center",
+    height: 90,
+  },
+
+  backButtonFloat: {
+  backgroundColor: "#fff",     // floating pill effect
+  borderRadius: 20,
+  padding: 8,
+  marginTop: 22,            // spacing before logo
+  elevation: 4,
+  marginRight: 160,
+  shadowColor: "#000",
+  shadowOpacity: 0.15,
+  shadowOffset: { width: 0, height: 2 },
+  shadowRadius: 3,
+  alignSelf: "center",
+  },
+  logo: {
+    marginTop: 7, 
+    height: 100,
+    width: 150,
+    right: 145,
+  },
+
+  headerTitle: { fontSize: 20, color: "#fff", fontWeight: "bold" },
+
+  scrollContent: { padding: 16, paddingBottom: 100 },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    marginVertical: 12,
+    color: "#000",
+  },
+  card: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  image: { width: "100%", height: 150, borderRadius: 12, marginBottom: 10 },
+  tagGreen: {
+    backgroundColor: "#388e3c",
+    padding: 8,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  tagText: { color: "#fff", fontWeight: "600" },
+
+  nutrientGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    marginTop: 12,
+  },
+  nutrientBox: {
+    width: "48%",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+    alignItems: "center",
+  },
+  nutrientValue: { fontSize: 20, fontWeight: "bold", color: "#fff" },
+  nutrientLabel: { fontSize: 14, color: "#fff", marginTop: 4 },
+  nutrientStatus: { fontSize: 12, color: "#fff", marginTop: 2 },
+
+  insightBox: {
+    backgroundColor: "#2e7d32",
+    padding: 10,
+    borderRadius: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 10,
+  },
+  insightText: { color: "#fff", marginLeft: 6, flex: 1 },
+
+  highlightCard: {
+  backgroundColor: "#e8f5e9", // light green card background
+  borderRadius: 12,
+  padding: 16,
+  marginBottom: 16,
+  alignItems: "center", // centers all contents horizontally
+},
+
+nextCropBox: {
+  marginTop: 8,
+  backgroundColor: "#2e7d32", // solid green (can tweak to match picture more)
+  paddingVertical: 12,
+  paddingHorizontal: 60,
+  borderRadius: 8,
+  alignItems: "center",
+  justifyContent: "center",
+},
+
+nextCropText: {
+  fontSize: 20,
+  fontWeight: "bold",
+  color: "#fff",
+  textAlign: "center",
+},
+
+  // Companion Planting (list style)
+  companionHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  companionListRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  goodCropItem: {
+    backgroundColor: "#e8f5e9",
+    color: "#2e7d32",
+    paddingVertical: 5,
+    marginVertical: 2,
+    borderRadius: 4,
+    textAlign: "center",
+    fontWeight: "500",
+    marginHorizontal: 10,
+  },
+  badCropItem: {
+    backgroundColor: "#ffebee",
+    color: "#c62828",
+    paddingVertical: 6,
+    marginVertical: 2,
+    borderRadius: 4,
+    textAlign: "center",
+    fontWeight: "500",
+    marginHorizontal: 10,
+  },
+
+  subHeader: {
+  fontSize: 14,
+  fontWeight: "bold", // changed from normal to bold
+  color: "#000",
+  textAlign: "center",
+},
+
+  centered: { flex: 1, justifyContent: "center", alignItems: "center" },
+  empty: { fontSize: 16, color: "#555" },
+  button: {
+    marginTop: 10,
+    backgroundColor: "#2e7d32",
+    padding: 10,
+    borderRadius: 8,
+  },
+  buttonText: { color: "#fff", fontWeight: "600" },
+});

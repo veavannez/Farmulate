@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, ActivityIndicator, StyleSheet, Dimensions } from "react-native";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
+import * as Location from "expo-location";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -8,92 +9,122 @@ export default function WeatherCard() {
   const [weather, setWeather] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [localTime, setLocalTime] = useState("");
 
-  const latitude = 14.5995; // Manila
-  const longitude = 120.9842;
+  // Weather + location fetch
+  const fetchWeather = async () => {
+    try {
+      // Ask for location permission
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        setError("Location permission denied");
+        setLoading(false);
+        return;
+      }
 
+      // Get current position
+      let { coords } = await Location.getCurrentPositionAsync({});
+      const { latitude, longitude } = coords;
+
+      // Reverse geocode → City name
+      let placemarks = await Location.reverseGeocodeAsync({ latitude, longitude });
+      let place = placemarks[0];
+      let locationName = `${place.city || place.district || ""}, ${place.region || ""}`;
+
+      // Fetch weather
+      const res = await fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current_weather=true&timezone=auto`
+      );
+      const data = await res.json();
+
+      if (!data.current_weather) {
+        setError("Failed to fetch weather");
+        setLoading(false);
+        return;
+      }
+
+      const weatherCode = data.current_weather.weathercode;
+
+      const weatherIcons = {
+        0: "weather-sunny",
+        1: "weather-partly-cloudy",
+        2: "weather-partly-cloudy",
+        3: "weather-cloudy",
+        45: "weather-fog",
+        48: "weather-fog",
+        51: "weather-partly-rainy",
+        53: "weather-rainy",
+        55: "weather-pouring",
+        61: "weather-rainy",
+        63: "weather-rainy",
+        65: "weather-pouring",
+        71: "weather-snowy",
+        73: "weather-snowy",
+        75: "weather-snowy-heavy",
+        80: "weather-rainy",
+        81: "weather-pouring",
+        82: "weather-lightning-rainy",
+      };
+
+      const weatherConditions = {
+        0: "Clear",
+        1: "Mainly Clear",
+        2: "Partly Cloudy",
+        3: "Overcast",
+        45: "Fog",
+        48: "Rime Fog",
+        51: "Light Drizzle",
+        53: "Moderate Drizzle",
+        55: "Heavy Drizzle",
+        61: "Light Rain",
+        63: "Moderate Rain",
+        65: "Heavy Rain",
+        71: "Light Snow",
+        73: "Moderate Snow",
+        75: "Heavy Snow",
+        80: "Light Showers",
+        81: "Moderate Showers",
+        82: "Heavy Showers",
+      };
+
+      setWeather({
+        temp: data.current_weather.temperature,
+        feelsLike: data.current_weather.temperature,
+        wind: data.current_weather.windspeed,
+        icon: weatherIcons[weatherCode] || "weather-sunset",
+        condition: weatherConditions[weatherCode] || "Unknown",
+        location: locationName || "Unknown Location",
+      });
+
+      setLoading(false);
+    } catch (err) {
+      setError("Network error");
+      setLoading(false);
+    }
+  };
+
+  // Fetch weather on mount and every 10 minutes
   useEffect(() => {
-    fetch(
-      `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current_weather=true`
-    )
-      .then((res) => res.json())
-      .then((data) => {
-        if (!data.current_weather) {
-          setError("Failed to fetch weather");
-          setLoading(false);
-          return;
-        }
+    fetchWeather();
+    const interval = setInterval(fetchWeather, 10 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
 
-        const weatherCode = data.current_weather.weathercode;
-
-        const weatherIcons = {
-          0: "weather-sunny",
-          1: "weather-partly-cloudy",
-          2: "weather-partly-cloudy",
-          3: "weather-cloudy",
-          45: "weather-fog",
-          48: "weather-fog",
-          51: "weather-partly-rainy",
-          53: "weather-rainy",
-          55: "weather-pouring",
-          61: "weather-rainy",
-          63: "weather-rainy",
-          65: "weather-pouring",
-          71: "weather-snowy",
-          73: "weather-snowy",
-          75: "weather-snowy-heavy",
-          80: "weather-rainy",
-          81: "weather-pouring",
-          82: "weather-lightning-rainy",
-        };
-
-        const weatherConditions = {
-          0: "Clear",
-          1: "Mainly Clear",
-          2: "Partly Cloudy",
-          3: "Overcast",
-          45: "Fog",
-          48: "Rime Fog",
-          51: "Light Drizzle",
-          53: "Moderate Drizzle",
-          55: "Heavy Drizzle",
-          61: "Light Rain",
-          63: "Moderate Rain",
-          65: "Heavy Rain",
-          71: "Light Snow",
-          73: "Moderate Snow",
-          75: "Heavy Snow",
-          80: "Light Showers",
-          81: "Moderate Showers",
-          82: "Heavy Showers",
-        };
-
-        // Convert UTC time to Manila (PHT, UTC+8)
-        const now = new Date(data.current_weather.time + "Z");
-        const formattedTime = now.toLocaleString("en-US", {
+  // Update time every minute
+  useEffect(() => {
+    const updateTime = () => {
+      setLocalTime(
+        new Date().toLocaleTimeString("en-US", {
           weekday: "short",
           hour: "numeric",
           minute: "numeric",
           hour12: true,
-          timeZone: "Asia/Manila",
-        });
-
-        setWeather({
-          temp: data.current_weather.temperature,
-          feelsLike: data.current_weather.temperature,
-          wind: data.current_weather.windspeed,
-          icon: weatherIcons[weatherCode] || "weather-sunset",
-          condition: weatherConditions[weatherCode] || "Unknown",
-          location: "Manila, PH",
-          time: formattedTime,
-        });
-
-        setLoading(false);
-      })
-      .catch(() => {
-        setError("Network error");
-        setLoading(false);
-      });
+        })
+      );
+    };
+    updateTime();
+    const timer = setInterval(updateTime, 60000);
+    return () => clearInterval(timer);
   }, []);
 
   if (loading)
@@ -124,7 +155,7 @@ export default function WeatherCard() {
       {/* Middle: Location + Time + Wind */}
       <View style={styles.middleContainer}>
         <Text style={[styles.location, { fontSize: SCREEN_WIDTH * 0.045 }]}>{weather.location}</Text>
-        <Text style={[styles.time, { fontSize: SCREEN_WIDTH * 0.04 }]}>{weather.time}</Text>
+        <Text style={[styles.time, { fontSize: SCREEN_WIDTH * 0.04 }]}>{localTime}</Text>
         <Text style={[styles.wind, { fontSize: SCREEN_WIDTH * 0.04 }]}>
           💨 {Math.round(weather.wind)} km/h
         </Text>

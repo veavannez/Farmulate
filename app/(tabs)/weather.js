@@ -2,63 +2,105 @@ import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
+import * as Location from "expo-location";
 
 export default function WeatherScreen() {
   const [weather, setWeather] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [localTime, setLocalTime] = useState("");
 
-  const latitude = 14.5995; // Sampaloc, Manila
-  const longitude = 120.9842;
-
-  useEffect(() => {
-    fetch(
-      `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&hourly=temperature_2m,relativehumidity_2m,dewpoint_2m,uv_index,windspeed_10m,weathercode&current_weather=true&timezone=Asia/Manila`
-    )
-      .then((res) => res.json())
-      .then((data) => {
-        const current = data.current_weather;
-        const hourly = data.hourly;
-
-        const weatherIcons = {
-          0: "weather-sunny",
-          1: "weather-partly-cloudy",
-          2: "weather-partly-cloudy",
-          3: "weather-cloudy",
-          45: "weather-fog",
-          48: "weather-fog",
-          51: "weather-partly-rainy",
-          53: "weather-rainy",
-          55: "weather-pouring",
-          61: "weather-rainy",
-          63: "weather-rainy",
-          65: "weather-pouring",
-          80: "weather-rainy",
-          81: "weather-pouring",
-          82: "weather-lightning-rainy",
-        };
-
-        setWeather({
-          temp: current.temperature,
-          feelsLike: current.temperature,
-          condition: current.weathercode,
-          wind: current.windspeed,
-          icon: weatherIcons[current.weathercode] || "weather-cloudy",
-          location: "Sampaloc, Manila",
-          time: new Date(current.time + "Z").toLocaleTimeString("en-US", {
-            hour: "numeric",
-            minute: "numeric",
-            hour12: true,
-            timeZone: "Asia/Manila",
-          }),
-          hourly,
-        });
-
+  // ⏳ Function to fetch weather
+  const fetchWeather = async () => {
+    try {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
         setLoading(false);
-      })
-      .catch(() => setLoading(false));
+        return;
+      }
+
+      let { coords } = await Location.getCurrentPositionAsync({});
+      const { latitude, longitude } = coords;
+
+      // Reverse geocode → get city & region
+      let placemarks = await Location.reverseGeocodeAsync({ latitude, longitude });
+      let place = placemarks[0];
+      let locationName = `${place.city || place.district || ""}, ${place.region || ""}`;
+
+      const res = await fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&hourly=temperature_2m,relativehumidity_2m,dewpoint_2m,uv_index,windspeed_10m,weathercode&current_weather=true&timezone=auto`
+      );
+      const data = await res.json();
+
+      const current = data.current_weather;
+      const hourly = data.hourly;
+
+      const weatherIcons = {
+        0: "weather-sunny",
+        1: "weather-partly-cloudy",
+        2: "weather-partly-cloudy",
+        3: "weather-cloudy",
+        45: "weather-fog",
+        48: "weather-fog",
+        51: "weather-partly-rainy",
+        53: "weather-rainy",
+        55: "weather-pouring",
+        61: "weather-rainy",
+        63: "weather-rainy",
+        65: "weather-pouring",
+        80: "weather-rainy",
+        81: "weather-pouring",
+        82: "weather-lightning-rainy",
+      };
+
+      // Align forecast to current time
+      const now = new Date();
+      const upcomingHours = hourly.time
+        .map((t, i) => ({ time: t, i }))
+        .filter(({ time }) => new Date(time) >= now);
+
+      setWeather({
+        temp: current.temperature,
+        feelsLike: current.temperature,
+        condition: current.weathercode,
+        wind: current.windspeed,
+        icon: weatherIcons[current.weathercode] || "weather-cloudy",
+        location: locationName || data.timezone, // fallback
+        hourly,
+        upcomingHours,
+        weatherIcons,
+      });
+
+      setLoading(false);
+    } catch (err) {
+      setLoading(false);
+    }
+  };
+
+  // 🌦 Fetch weather initially + refresh every 15 minutes
+  useEffect(() => {
+    fetchWeather();
+    const interval = setInterval(fetchWeather, 15 * 60 * 1000);
+    return () => clearInterval(interval);
   }, []);
 
-  if (loading) return <ActivityIndicator size="large" color="#2e7d32" style={{ marginTop: 50 }} />;
+  // ⏰ Keep the clock ticking every second
+  useEffect(() => {
+    const updateTime = () => {
+      setLocalTime(
+        new Date().toLocaleTimeString("en-US", {
+          hour: "numeric",
+          minute: "numeric",
+          hour12: true,
+        })
+      );
+    };
+    updateTime();
+    const timer = setInterval(updateTime, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  if (loading || !weather)
+    return <ActivityIndicator size="large" color="#2e7d32" style={{ marginTop: 50 }} />;
 
   return (
     <ScrollView style={styles.container}>
@@ -68,7 +110,7 @@ export default function WeatherScreen() {
         <MaterialCommunityIcons name={weather.icon} size={90} color="#fff" />
         <Text style={styles.temp}>{Math.round(weather.temp)}°</Text>
         <Text style={styles.feelsLike}>Feels like {Math.round(weather.feelsLike)}°</Text>
-        <Text style={styles.time}>{weather.time}</Text>
+        <Text style={styles.time}>{localTime}</Text>
       </LinearGradient>
 
       {/* Advisory Banner */}
@@ -82,17 +124,18 @@ export default function WeatherScreen() {
       {/* Hourly Forecast */}
       <Text style={styles.sectionTitle}>Hourly Forecast</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hourlyRow}>
-        {weather.hourly.time.slice(0, 6).map((time, idx) => {
-          const temp = weather.hourly.temperature_2m[idx];
+        {weather.upcomingHours.slice(0, 6).map(({ time, i }) => {
+          const temp = weather.hourly.temperature_2m[i];
+          const code = weather.hourly.weathercode[i];
+          const icon = weather.weatherIcons[code] || "weather-cloudy";
           const hour = new Date(time).toLocaleTimeString("en-US", {
             hour: "numeric",
             hour12: true,
-            timeZone: "Asia/Manila",
           });
           return (
             <View key={time} style={styles.hourCard}>
               <Text style={styles.hourText}>{hour}</Text>
-              <MaterialCommunityIcons name="weather-cloudy" size={28} color="#2e7d32" />
+              <MaterialCommunityIcons name={icon} size={28} color="#2e7d32" />
               <Text style={styles.hourTemp}>{Math.round(temp)}°</Text>
             </View>
           );
@@ -167,13 +210,9 @@ const styles = StyleSheet.create({
     color: "#333",
   },
 
-  // Hourly Forecast
-  hourlyRow: {
-    paddingHorizontal: 15,
-    marginTop: 10,
-  },
+  hourlyRow: { paddingHorizontal: 15, marginTop: 10 },
   hourCard: {
-    backgroundColor: "#eaeaea", // match grey card look
+    backgroundColor: "#eaeaea",
     marginBottom: 15,
     borderRadius: 20,
     padding: 15,
@@ -188,7 +227,6 @@ const styles = StyleSheet.create({
   hourText: { fontSize: 14, color: "#444", marginBottom: 4 },
   hourTemp: { fontSize: 16, fontWeight: "600", color: "#2e7d32" },
 
-  // Today’s Details
   metricsRow: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -198,7 +236,7 @@ const styles = StyleSheet.create({
   },
   metricCard: {
     flexBasis: "48%",
-    backgroundColor: "#eaeaea", // match WeatherCard grey
+    backgroundColor: "#eaeaea",
     marginBottom: 12,
     borderRadius: 16,
     padding: 18,

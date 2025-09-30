@@ -5,13 +5,17 @@
     "scheme": "acme",
     "backgroundColor": "#0b1e0a",
     "plugins": [
-      "expo-router"
+      "expo-router",
+      "expo-font"
     ],
     "icon": "./assets/icon.png",
     "splash": {
-      "image": "./assets/splash-icon.png", 
-      "resizeMode": "contain", 
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
       "backgroundColor": "#0b1e0a"
+    },
+    "android": {
+      "package": "com.anonymous.react_native_farmulate"
     }
   }
 }

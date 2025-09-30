@@ -69,6 +69,7 @@ export default function HistoryScreen() {
           data={history}
           keyExtractor={(item) => item.id.toString()}
           renderItem={renderItem}
+          removeClippedSubviews={false} // ✅ prevents key duplication/rendering issues
         />
       )}
     </View>
