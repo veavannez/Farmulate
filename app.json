@@ -2,7 +2,8 @@
   "expo": {
     "name": "Farmulate",
     "slug": "react_native_farmulate",
-    "scheme": "acme",
+    "scheme": "farmulate",
+    "jsEngine": "jsc",
     "backgroundColor": "#0b1e0a",
     "plugins": [
       "expo-router",
@@ -15,7 +16,17 @@
       "backgroundColor": "#0b1e0a"
     },
     "android": {
-      "package": "com.anonymous.react_native_farmulate"
+      "package": "com.anonymous.react_native_farmulate",
+      "softwareKeyboardLayoutMode": "resize"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "ce6bef4e-9715-4eca-92a2-f11ec18112c5"
+      }
     }
   }
 }

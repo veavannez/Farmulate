@@ -15,13 +15,13 @@ export function getPhCategory(value) {
 }
 
 export function getPhosphorusCategory(value, ph) {
-  if (ph > 7) {
+  if (ph >= 7) {
     // Olsen method
     if (value >= 10.1 && value <= 15) return { label: "High", color: COLORS.high };
     if (value >= 6.1 && value <= 10) return { label: "Moderately High", color: COLORS.modHigh };
     if (value >= 2.1 && value <= 6.0) return { label: "Moderately Low", color: COLORS.modLow };
     return { label: "Low", color: COLORS.low };
-  } else if (ph < 6) {
+  } else if (ph <= 6) {
     // Bray 1 method
     if (value >= 20.1 && value <= 30) return { label: "High", color: COLORS.high };
     if (value >= 15.1 && value <= 20) return { label: "Moderately High", color: COLORS.modHigh };

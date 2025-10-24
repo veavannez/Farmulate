@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -7,46 +7,125 @@ import {
   StyleSheet,
   ScrollView,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { supabase } from "../../lib/supabase";
 
 const ProfileScreen = () => {
   const router = useRouter();
 
-  // Example state (later fetch from Supabase)
-  const [username, setUsername] = useState("demo_user");
-  const [firstName, setFirstName] = useState("John");
-  const [lastName, setLastName] = useState("Doe");
-  const [email, setEmail] = useState("demo@email.com");
+  const [userId, setUserId] = useState(null);
+  const [username, setUsername] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [email, setEmail] = useState("");
 
-  // Edit state
   const [isEditing, setIsEditing] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  // Change password state
   const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
-  const handleLogout = () => {
-    // TODO: Supabase logout
-    router.replace("/LoginScreen");
-  };
+  // ✅ Fetch profile and user email
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        setLoading(true);
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
 
-  const handleSaveProfile = () => {
+        if (userError) throw userError;
+        if (!user) return router.replace("/LoginScreen");
+
+        setUserId(user.id);
+        setEmail(user.email);
+
+        const { data: profile, error: profileError } = await supabase
+          .from("profiles")
+          .select("username, first_name, last_name")
+          .eq("user_id", user.id)
+          .single();
+
+        if (profileError) throw profileError;
+
+        setUsername(profile.username || "");
+        setFirstName(profile.first_name || "");
+        setLastName(profile.last_name || "");
+      } catch (err) {
+        console.error("Error fetching profile:", err.message);
+        Alert.alert("Error", "Could not load profile information.");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProfile();
+  }, []);
+
+  // ✅ Save updated profile
+  const handleSaveProfile = async () => {
+  try {
     setIsEditing(false);
-    // TODO: Save updated details to Supabase
-    Alert.alert("Success", "Profile updated!");
-  };
 
+    // Get logged-in user
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError) throw userError;
+    if (!user) throw new Error("No user logged in");
+
+    // Update profile data
+    const { error: updateError } = await supabase
+      .from("profiles")
+      .update({
+        username,
+        first_name: firstName,
+        last_name: lastName,
+      })
+      .eq("user_id", user.id);
+
+    if (updateError) throw updateError;
+
+    // Notify user
+    Alert.alert(
+      "Profile Updated",
+      "Your profile has been updated successfully. You’ll need to log in again.",
+      [
+        {
+          text: "OK",
+          onPress: async () => {
+            // Logout user
+            await supabase.auth.signOut();
+            router.replace("/LoginScreen");
+          },
+        },
+      ]
+    );
+  } catch (err) {
+    console.error("Error updating profile:", err.message);
+    Alert.alert("Error", err.message);
+  }
+};
+
+
+  // ✅ Password update validation
   const validatePassword = (password) => {
     const minLength = /.{8,}/;
     const hasNumber = /[0-9]/;
     const hasSymbol = /[!@#$%^&*(),.?":{}|<>]/;
-
-    return minLength.test(password) && hasNumber.test(password) && hasSymbol.test(password);
+    return (
+      minLength.test(password) && hasNumber.test(password) && hasSymbol.test(password)
+    );
   };
 
-  const handleSavePassword = () => {
+  // ✅ Update password securely with Supabase
+  const handleSavePassword = async () => {
     if (newPassword !== confirmPassword) {
       Alert.alert("Error", "Passwords do not match!");
       return;
@@ -59,12 +138,38 @@ const ProfileScreen = () => {
       return;
     }
 
-    // TODO: Supabase password update
-    setShowPasswordForm(false);
-    setNewPassword("");
-    setConfirmPassword("");
-    Alert.alert("Success", "Password changed!");
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) throw error;
+
+      Alert.alert("Success", "Password changed successfully!");
+      setShowPasswordForm(false);
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (err) {
+      console.error("Password update error:", err.message);
+      Alert.alert("Error", "Failed to update password.");
+    }
   };
+
+  // ✅ Logout function
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      router.replace("/LoginScreen");
+    } catch (err) {
+      console.error("Logout error:", err.message);
+      Alert.alert("Error", "Failed to log out.");
+    }
+  };
+
+  if (loading) {
+    return (
+      <View style={[styles.container, { justifyContent: "center" }]}>
+        <ActivityIndicator size="large" color="#76c043" />
+      </View>
+    );
+  }
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -72,8 +177,8 @@ const ProfileScreen = () => {
       <View style={styles.headerBox}>
         <View style={styles.avatar}>
           <Text style={styles.avatarText}>
-            {firstName.charAt(0)}
-            {lastName.charAt(0)}
+            {firstName?.charAt(0)}
+            {lastName?.charAt(0)}
           </Text>
         </View>
         <Text style={styles.username}>{username}</Text>
@@ -109,28 +214,23 @@ const ProfileScreen = () => {
         <Text style={styles.label}>Email Address</Text>
         <TextInput
           value={email}
-          onChangeText={setEmail}
-          keyboardType="email-address"
-          style={[styles.input, !isEditing && styles.disabledInput]}
-          editable={isEditing}
+          editable={false}
+          style={[styles.input, styles.disabledInput]}
         />
       </View>
 
-      {/* Edit / Save Profile */}
+      {/* Edit / Save */}
       {isEditing ? (
         <TouchableOpacity style={styles.saveButton} onPress={handleSaveProfile}>
           <Text style={styles.saveText}>💾 Save Changes</Text>
         </TouchableOpacity>
       ) : (
-        <TouchableOpacity
-          style={styles.editButton}
-          onPress={() => setIsEditing(true)}
-        >
+        <TouchableOpacity style={styles.editButton} onPress={() => setIsEditing(true)}>
           <Text style={styles.editText}>✏️ Edit Profile</Text>
         </TouchableOpacity>
       )}
 
-      {/* Change Password Section */}
+      {/* Change Password */}
       {showPasswordForm ? (
         <View style={styles.infoBox}>
           <Text style={styles.label}>New Password</Text>
@@ -151,10 +251,7 @@ const ProfileScreen = () => {
             placeholder="Confirm new password"
           />
 
-          <TouchableOpacity
-            style={styles.saveButton}
-            onPress={handleSavePassword}
-          >
+          <TouchableOpacity style={styles.saveButton} onPress={handleSavePassword}>
             <Text style={styles.saveText}>✅ Save Password</Text>
           </TouchableOpacity>
 

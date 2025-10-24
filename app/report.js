@@ -25,8 +25,6 @@ const ReportScreen = () => {
   useEffect(() => {
     if (soilData) {
       const reportId = soilData.id || Date.now().toString();
-
-      // ✅ Only add if it doesn't already exist in history
       const alreadyExists = history.some((h) => h.id === reportId);
 
       if (!alreadyExists) {
@@ -65,7 +63,10 @@ const ReportScreen = () => {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButtonFloat}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={styles.backButtonFloat}
+        >
           <Ionicons name="arrow-back" size={22} color="#2e7d32" />
         </TouchableOpacity>
 
@@ -76,12 +77,19 @@ const ReportScreen = () => {
         />
       </View>
 
-
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Soil Report */}
         <Text style={styles.sectionTitle}>
-          <MaterialCommunityIcons name="sprout" size={22} color="#2e7d32" /> Soil Report
+          <MaterialCommunityIcons name="sprout" size={28} color="#2e7d32" /> Soil Report
         </Text>
+
+        {/* Pot/Plot + Date Info */}
+        <View style={styles.metaBox}>
+          <Text style={styles.metaTitle}>🪴 {soilData.potName}</Text>
+          <Text style={styles.metaDate}>
+            {new Date(soilData.generatedAt || Date.now()).toLocaleString()}
+          </Text>
+        </View>
 
         {/* Soil Image + Texture */}
         <View style={styles.card}>
@@ -100,28 +108,55 @@ const ReportScreen = () => {
         {/* Nutrients only */}
         <View style={styles.card}>
           <View style={styles.nutrientGrid}>
-            <View style={[styles.nutrientBox, { backgroundColor: nitrogenCategory.color }]}>
+            <View
+              style={[
+                styles.nutrientBox,
+                { backgroundColor: nitrogenCategory.color },
+              ]}
+            >
               <Ionicons name="leaf" size={24} color="#fff" />
               <Text style={styles.nutrientValue}>{soilData.nitrogen}</Text>
               <Text style={styles.nutrientLabel}>Nitrogen</Text>
-              <Text style={styles.nutrientStatus}>{nitrogenCategory.label}</Text>
+              <Text style={styles.nutrientStatus}>
+                {nitrogenCategory.label}
+              </Text>
             </View>
 
-            <View style={[styles.nutrientBox, { backgroundColor: phosphorusCategory.color }]}>
-              <MaterialCommunityIcons name="beaker-outline" size={24} color="#fff" />
+            <View
+              style={[
+                styles.nutrientBox,
+                { backgroundColor: phosphorusCategory.color },
+              ]}
+            >
+              <MaterialCommunityIcons
+                name="beaker-outline"
+                size={24}
+                color="#fff"
+              />
               <Text style={styles.nutrientValue}>{soilData.phosphorus}</Text>
               <Text style={styles.nutrientLabel}>Phosphorus</Text>
-              <Text style={styles.nutrientStatus}>{phosphorusCategory.label}</Text>
+              <Text style={styles.nutrientStatus}>
+                {phosphorusCategory.label}
+              </Text>
             </View>
 
-            <View style={[styles.nutrientBox, { backgroundColor: potassiumCategory.color }]}>
+            <View
+              style={[
+                styles.nutrientBox,
+                { backgroundColor: potassiumCategory.color },
+              ]}
+            >
               <MaterialCommunityIcons name="flask" size={24} color="#fff" />
               <Text style={styles.nutrientValue}>{soilData.potassium}</Text>
               <Text style={styles.nutrientLabel}>Potassium</Text>
-              <Text style={styles.nutrientStatus}>{potassiumCategory.label}</Text>
+              <Text style={styles.nutrientStatus}>
+                {potassiumCategory.label}
+              </Text>
             </View>
 
-            <View style={[styles.nutrientBox, { backgroundColor: phCategory.color }]}>
+            <View
+              style={[styles.nutrientBox, { backgroundColor: phCategory.color }]}
+            >
               <Ionicons name="water" size={24} color="#fff" />
               <Text style={styles.nutrientValue}>{soilData.phLevel}</Text>
               <Text style={styles.nutrientLabel}>pH</Text>
@@ -192,37 +227,50 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     height: 90,
   },
-
   backButtonFloat: {
-  backgroundColor: "#fff",     // floating pill effect
-  borderRadius: 20,
-  padding: 8,
-  marginTop: 22,            // spacing before logo
-  elevation: 4,
-  marginRight: 160,
-  shadowColor: "#000",
-  shadowOpacity: 0.15,
-  shadowOffset: { width: 0, height: 2 },
-  shadowRadius: 3,
-  alignSelf: "center",
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    padding: 8,
+    marginTop: 22,
+    elevation: 4,
+    marginRight: 160,
+    shadowColor: "#000",
+    shadowOpacity: 0.15,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 3,
+    alignSelf: "center",
   },
   logo: {
-    marginTop: 7, 
+    marginTop: 7,
     height: 100,
     width: 150,
     right: 145,
   },
-
-  headerTitle: { fontSize: 20, color: "#fff", fontWeight: "bold" },
-
   scrollContent: { padding: 16, paddingBottom: 100 },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 25,
     fontWeight: "600",
     marginVertical: 12,
     color: "#000",
   },
+  metaBox: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 12,
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 8,
+    alignItems: "center",
+  },
+  metaTitle: { fontSize: 18, fontWeight: "bold", color: "#2e7d32", marginBottom: 4 },
+  metaDate: { fontSize: 14, color: "#555" },
   card: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+  },
+  ard: {
     backgroundColor: "#fff",
     borderRadius: 12,
     padding: 16,
@@ -241,7 +289,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   tagText: { color: "#fff", fontWeight: "600" },
-
   nutrientGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -258,7 +305,6 @@ const styles = StyleSheet.create({
   nutrientValue: { fontSize: 20, fontWeight: "bold", color: "#fff" },
   nutrientLabel: { fontSize: 14, color: "#fff", marginTop: 4 },
   nutrientStatus: { fontSize: 12, color: "#fff", marginTop: 2 },
-
   insightBox: {
     backgroundColor: "#2e7d32",
     padding: 10,
@@ -268,33 +314,21 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   insightText: { color: "#fff", marginLeft: 6, flex: 1 },
-
   highlightCard: {
-  backgroundColor: "#e8f5e9", // light green card background
-  borderRadius: 12,
-  padding: 16,
-  marginBottom: 16,
-  alignItems: "center", // centers all contents horizontally
-},
-
-nextCropBox: {
-  marginTop: 8,
-  backgroundColor: "#2e7d32", // solid green (can tweak to match picture more)
-  paddingVertical: 12,
-  paddingHorizontal: 60,
-  borderRadius: 8,
-  alignItems: "center",
-  justifyContent: "center",
-},
-
-nextCropText: {
-  fontSize: 20,
-  fontWeight: "bold",
-  color: "#fff",
-  textAlign: "center",
-},
-
-  // Companion Planting (list style)
+    backgroundColor: "#e8f5e9",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    alignItems: "center",
+  },
+  nextCropBox: {
+    marginTop: 8,
+    backgroundColor: "#2e7d32",
+    paddingVertical: 12,
+    paddingHorizontal: 60,
+    borderRadius: 8,
+  },
+  nextCropText: { fontSize: 20, fontWeight: "bold", color: "#fff", textAlign: "center" },
   companionHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -324,14 +358,12 @@ nextCropText: {
     fontWeight: "500",
     marginHorizontal: 10,
   },
-
   subHeader: {
-  fontSize: 14,
-  fontWeight: "bold", // changed from normal to bold
-  color: "#000",
-  textAlign: "center",
-},
-
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#000",
+    textAlign: "center",
+  },
   centered: { flex: 1, justifyContent: "center", alignItems: "center" },
   empty: { fontSize: 16, color: "#555" },
   button: {

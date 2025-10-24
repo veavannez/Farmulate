@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -13,19 +13,26 @@ import {
   ActionSheetIOS,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
-import { useRouter } from "expo-router"; // ✅ router import
-import { useSoil } from "../../context/SoilContext"; // 👈 your context
+import * as FileSystem from "expo-file-system"; // ✅ for reading image base64
+import { Picker } from "@react-native-picker/picker";
+import { useRouter } from "expo-router";
+import { supabase } from "../../lib/supabase";
+import { useSoil } from "../../context/SoilContext";
 
 const MainScreen = () => {
   const [nitrogen, setNitrogen] = useState("");
   const [phosphorus, setPhosphorus] = useState("");
   const [potassium, setPotassium] = useState("");
   const [phLevel, setPhLevel] = useState("");
+  const [selectedPot, setSelectedPot] = useState("default");
+  const [newPotName, setNewPotName] = useState("");
+  const [existingPots, setExistingPots] = useState([]);
   const [soilImage, setSoilImage] = useState(null);
 
   const { setSoilData } = useSoil();
-  const router = useRouter(); // ✅ init router
+  const router = useRouter();
 
+  // 📷 Pick image from camera or gallery
   const pickImage = async (fromCamera = false) => {
     try {
       if (fromCamera) {
@@ -46,7 +53,7 @@ const MainScreen = () => {
           return;
         }
         const result = await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          mediaTypes: ImagePicker.MediaType.Images, // ✅ updated
           allowsEditing: true,
           quality: 1,
         });
@@ -79,48 +86,190 @@ const MainScreen = () => {
     }
   };
 
-  const handleFarmulate = () => {
+  // 🌿 Load user's pots
+  useEffect(() => {
+    const loadPots = async () => {
+      try {
+        const { data: user } = await supabase.auth.getUser();
+        if (!user?.user?.id) return;
+
+        const { data, error } = await supabase
+          .from("pots")
+          .select("name")
+          .eq("user_id", user.user.id)
+          .order("name", { ascending: true });
+
+        if (error) throw error;
+        if (data) setExistingPots(data.map((p) => p.name));
+      } catch (err) {
+        console.error("Error loading pots:", err);
+      }
+    };
+    loadPots();
+  }, []);
+
+  // ☁️ Upload image to Supabase Storage (Expo-safe)
+  const uploadImage = async (uri, userId) => {
+    try {
+      const base64 = await FileSystem.readAsStringAsync(uri, { encoding: "base64" });
+      const byteArray = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+      const blob = new Blob([byteArray], { type: "image/jpeg" });
+      const fileName = `${Date.now()}-${userId}.jpg`;
+
+      const { error } = await supabase.storage
+        .from("soil-images")
+        .upload(fileName, blob, { contentType: "image/jpeg", upsert: true });
+
+      if (error) throw error;
+
+      const { data: publicUrl } = supabase.storage
+        .from("soil-images")
+        .getPublicUrl(fileName);
+
+      return publicUrl.publicUrl;
+    } catch (err) {
+      console.error("Image upload failed:", err);
+      Alert.alert("Upload Error", "Could not upload the soil image.");
+      return null;
+    }
+  };
+
+  // 🪴 Save new pot name
+  const savePot = async (potName) => {
+    try {
+      const { data: user } = await supabase.auth.getUser();
+      if (!user?.user?.id) {
+        Alert.alert("Error", "User not logged in.");
+        return;
+      }
+
+      const { error } = await supabase.from("pots").insert({
+        user_id: user.user.id,
+        name: potName,
+      });
+
+      if (error) throw error;
+      setExistingPots((prev) => [...prev, potName].sort((a, b) => a.localeCompare(b)));
+    } catch (err) {
+      console.error("Error saving pot:", err);
+    }
+  };
+
+  // 🌾 Handle FARMULATE
+  const handleFarmulate = async () => {
     const missing = [];
     if (!nitrogen) missing.push("Nitrogen");
     if (!phosphorus) missing.push("Phosphorus");
     if (!potassium) missing.push("Potassium");
     if (!phLevel) missing.push("pH Level");
-    if (!soilImage) missing.push("Soil Image");
+
+    let finalPotName = selectedPot;
+    if (selectedPot === "new") {
+      finalPotName = newPotName.trim();
+      if (!finalPotName) missing.push("Pot/Plot Name");
+    }
 
     if (missing.length > 0) {
       Alert.alert("Missing Fields", `Please fill in: ${missing.join(", ")}`);
       return;
     }
 
-    // Example dummy results (replace with ML model later)
+    // ✅ Upload image to Supabase if selected
+    let imageUrl = null;
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (soilImage) {
+      imageUrl = await uploadImage(soilImage, user.id);
+    }
+
+    if (selectedPot === "new" && finalPotName) {
+      await savePot(finalPotName);
+    }
+
+    // ✅ Computed results (dummy placeholders)
     const results = {
+      potName: finalPotName,
       soilTexture: "Loamy",
       soilHealth: "Moderate",
       nitrogen,
       phosphorus,
       potassium,
       phLevel,
+      soilImage: imageUrl || soilImage,
       insight: "Apply phosphorus-rich fertilizer to balance nutrient levels.",
       lastCrop: "Tomatoes",
       nextCrop: "Carrots",
       companions: ["Marigold", "Rosemary", "Sage", "Oregano", "Lettuce"],
       avoid: ["Potatoes", "Dill", "Parsley", "Broccoli"],
-      soilImage,
     };
 
-    setSoilData(results);
+    // ✅ Update the pot record
+    try {
+      const { error: potError } = await supabase
+        .from("pots")
+        .update({
+          nitrogen,
+          phosphorus,
+          potassium,
+          ph_level: phLevel,
+          soil_texture: results.soilTexture,
+          soil_health: results.soilHealth,
+          insight: results.insight,
+          last_crop: results.lastCrop,
+          next_crop: results.nextCrop,
+          companions: results.companions,
+          avoid: results.avoid,
+          soil_image_url: imageUrl,
+        })
+        .eq("user_id", user.id)
+        .eq("name", finalPotName);
 
-    // ✅ Navigate to report screen with params
+      if (potError) throw potError;
+    } catch (err) {
+      console.error("Error updating pot data:", err);
+    }
+
+    // ✅ Insert a new record into the reports table
+    try {
+      const { error: reportError } = await supabase.from("reports").insert({
+        user_id: user.id,
+        pot_name: finalPotName,
+        nitrogen,
+        phosphorus,
+        potassium,
+        ph_level: phLevel,
+        soil_texture: results.soilTexture,
+        soil_health: results.soilHealth,
+        soil_image_url: imageUrl,
+        insight: results.insight,
+        last_crop: results.lastCrop,
+        next_crop: results.nextCrop,
+        companions: results.companions,
+        avoid: results.avoid,
+        created_at: new Date().toISOString(),
+      });
+
+      if (reportError) throw reportError;
+    } catch (err) {
+      console.error("Error inserting report:", err);
+    }
+
+    setSoilData(results);
     router.push("/report");
 
-    // Clear inputs
+    // Reset
     setNitrogen("");
     setPhosphorus("");
     setPotassium("");
     setPhLevel("");
+    setNewPotName("");
     setSoilImage(null);
+    setSelectedPot("new");
   };
 
+  // 🧱 UI Layout
   return (
     <KeyboardAvoidingView
       style={{ flex: 1 }}
@@ -130,7 +279,6 @@ const MainScreen = () => {
         contentContainerStyle={styles.scrollContainer}
         showsVerticalScrollIndicator={false}
       >
-        {/* Decorative leaves */}
         <View style={styles.decorContainer}>
           <Image
             source={require("../../assets/leaves-decor.png")}
@@ -144,9 +292,34 @@ const MainScreen = () => {
           />
         </View>
 
-        {/* Card */}
         <View style={styles.card}>
           <Text style={styles.title}>Soil Information</Text>
+
+          <Text style={styles.label}>Select Pot/Plot</Text>
+          <View style={styles.pickerContainer}>
+            <Picker
+              selectedValue={selectedPot}
+              onValueChange={(val) => setSelectedPot(val)}
+              style={styles.picker}
+              dropdownIconColor="#333"
+            >
+              <Picker.Item label=" Select Pot/Plot" value="default" color="#aaa" />
+              {existingPots.map((pot, idx) => (
+                <Picker.Item key={idx} label={pot} value={pot} color="#333" />
+              ))}
+              <Picker.Item label="🌱 Add New Pot/Plot" value="new" color="#333" />
+            </Picker>
+          </View>
+
+          {selectedPot === "new" && (
+            <TextInput
+              placeholder="Enter new pot/plot name"
+              placeholderTextColor="#aaa"
+              style={styles.input}
+              value={newPotName}
+              onChangeText={setNewPotName}
+            />
+          )}
 
           <Text style={styles.label}>Nitrogen</Text>
           <TextInput
@@ -184,25 +357,29 @@ const MainScreen = () => {
             onChangeText={setPhLevel}
           />
 
-          {/* Upload */}
           <TouchableOpacity style={styles.uploadBtn} onPress={handleImageSelection}>
             <Text style={styles.uploadText}>
               {soilImage ? "✅ Change Soil Image" : "📷 Add Soil Image"}
             </Text>
           </TouchableOpacity>
 
-          {/* Preview */}
           {soilImage && (
             <View style={styles.previewContainer}>
-              <Image source={{ uri: soilImage }} style={styles.preview} resizeMode="cover" />
-              <TouchableOpacity style={styles.removeBtn} onPress={() => setSoilImage(null)}>
+              <Image
+                source={{ uri: soilImage }}
+                style={styles.preview}
+                resizeMode="cover"
+              />
+              <TouchableOpacity
+                style={styles.removeBtn}
+                onPress={() => setSoilImage(null)}
+              >
                 <Text style={styles.removeText}>❌</Text>
               </TouchableOpacity>
             </View>
           )}
         </View>
 
-        {/* Farmulate */}
         <TouchableOpacity style={styles.button} onPress={handleFarmulate}>
           <Text style={styles.buttonText}>FARMULATE</Text>
         </TouchableOpacity>
@@ -212,6 +389,13 @@ const MainScreen = () => {
 };
 
 const styles = StyleSheet.create({
+  pickerContainer: {
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    marginBottom: 15,
+    overflow: "hidden",
+  },
+  picker: { color: "#333", fontSize: 16 },
   scrollContainer: {
     flexGrow: 1,
     backgroundColor: "#fff",
@@ -219,11 +403,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: 20,
   },
-  decorContainer: {
-    flexDirection: "row",
-    justifyContent: "center",
-    marginBottom: -15,
-  },
+  decorContainer: { flexDirection: "row", justifyContent: "center", marginBottom: -15 },
   decorLeft: { width: 100, height: 40, marginRight: 100 },
   decorRight: { width: 100, height: 40, transform: [{ scaleX: -1 }] },
   card: {
@@ -233,14 +413,12 @@ const styles = StyleSheet.create({
     padding: 20,
     marginTop: 10,
   },
-  title: { fontSize: 22, fontWeight: "bold", color: "#fff", textAlign: "center", marginBottom: 20 },
-  label: { fontWeight: "bold", marginBottom: 5, color: "#fff" },
-  input: {
-    backgroundColor: "#fff",
-    padding: 12,
-    borderRadius: 10,
-    marginBottom: 15,
-    fontSize: 16,
+  title: {
+    fontSize: 22,
+    fontWeight: "bold",
+    color: "#fff",
+    textAlign: "center",
+    marginBottom: 20,
   },
   uploadBtn: {
     backgroundColor: "#8bc34a",
@@ -253,9 +431,31 @@ const styles = StyleSheet.create({
   uploadText: { color: "#fff", fontWeight: "600", fontSize: 16 },
   previewContainer: { marginTop: 10, alignItems: "center", position: "relative" },
   preview: { width: "100%", height: 150, borderRadius: 10 },
-  removeBtn: { position: "absolute", top: 5, right: 5, backgroundColor: "rgba(0,0,0,0.6)", borderRadius: 20, padding: 5 },
+  removeBtn: {
+    position: "absolute",
+    top: 5,
+    right: 5,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    borderRadius: 20,
+    padding: 5,
+  },
   removeText: { color: "#fff", fontSize: 14 },
-  button: { backgroundColor: "#004d00", padding: 15, borderRadius: 25, alignItems: "center", marginTop: 20, width: "90%" },
+  label: { fontWeight: "bold", marginBottom: 5, color: "#fff" },
+  input: {
+    backgroundColor: "#fff",
+    padding: 12,
+    borderRadius: 10,
+    marginBottom: 15,
+    fontSize: 16,
+  },
+  button: {
+    backgroundColor: "#004d00",
+    padding: 15,
+    borderRadius: 25,
+    alignItems: "center",
+    marginTop: 20,
+    width: "90%",
+  },
   buttonText: { color: "#fff", fontSize: 18, fontWeight: "bold" },
 });
 
