@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
 
 const ProfileScreen = () => {
@@ -28,7 +29,9 @@ const ProfileScreen = () => {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
-  // ✅ Fetch profile and user email
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
   useEffect(() => {
     const fetchProfile = async () => {
       try {
@@ -66,65 +69,54 @@ const ProfileScreen = () => {
     fetchProfile();
   }, []);
 
-  // ✅ Save updated profile
   const handleSaveProfile = async () => {
-  try {
-    setIsEditing(false);
+    try {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
 
-    // Get logged-in user
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
+      if (userError) throw userError;
+      if (!user) throw new Error("No user logged in");
 
-    if (userError) throw userError;
-    if (!user) throw new Error("No user logged in");
+      const { error: updateError } = await supabase
+        .from("profiles")
+        .update({
+          username,
+          first_name: firstName,
+          last_name: lastName,
+        })
+        .eq("user_id", user.id);
 
-    // Update profile data
-    const { error: updateError } = await supabase
-      .from("profiles")
-      .update({
-        username,
-        first_name: firstName,
-        last_name: lastName,
-      })
-      .eq("user_id", user.id);
+      if (updateError) throw updateError;
 
-    if (updateError) throw updateError;
-
-    // Notify user
-    Alert.alert(
-      "Profile Updated",
-      "Your profile has been updated successfully. You’ll need to log in again.",
-      [
-        {
-          text: "OK",
-          onPress: async () => {
-            // Logout user
-            await supabase.auth.signOut();
-            router.replace("/LoginScreen");
+      Alert.alert(
+        "Profile Updated",
+        "Your profile has been updated successfully. You’ll need to log in again.",
+        [
+          {
+            text: "OK",
+            onPress: async () => {
+              await supabase.auth.signOut();
+              router.replace("/LoginScreen");
+            },
           },
-        },
-      ]
-    );
-  } catch (err) {
-    console.error("Error updating profile:", err.message);
-    Alert.alert("Error", err.message);
-  }
-};
+        ]
+      );
+      setIsEditing(false);
+    } catch (err) {
+      console.error("Error updating profile:", err.message);
+      Alert.alert("Error", err.message);
+    }
+  };
 
-
-  // ✅ Password update validation
   const validatePassword = (password) => {
     const minLength = /.{8,}/;
     const hasNumber = /[0-9]/;
     const hasSymbol = /[!@#$%^&*(),.?":{}|<>]/;
-    return (
-      minLength.test(password) && hasNumber.test(password) && hasSymbol.test(password)
-    );
+    return minLength.test(password) && hasNumber.test(password) && hasSymbol.test(password);
   };
 
-  // ✅ Update password securely with Supabase
   const handleSavePassword = async () => {
     if (newPassword !== confirmPassword) {
       Alert.alert("Error", "Passwords do not match!");
@@ -152,7 +144,6 @@ const ProfileScreen = () => {
     }
   };
 
-  // ✅ Logout function
   const handleLogout = async () => {
     try {
       await supabase.auth.signOut();
@@ -173,7 +164,6 @@ const ProfileScreen = () => {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      {/* Profile Header */}
       <View style={styles.headerBox}>
         <View style={styles.avatar}>
           <Text style={styles.avatarText}>
@@ -185,7 +175,7 @@ const ProfileScreen = () => {
         <Text style={styles.email}>{email}</Text>
       </View>
 
-      {/* Info Box */}
+      {/* Profile info card */}
       <View style={styles.infoBox}>
         <Text style={styles.label}>Username</Text>
         <TextInput
@@ -212,44 +202,69 @@ const ProfileScreen = () => {
         />
 
         <Text style={styles.label}>Email Address</Text>
-        <TextInput
-          value={email}
-          editable={false}
-          style={[styles.input, styles.disabledInput]}
-        />
+        <TextInput value={email} editable={false} style={[styles.input, styles.disabledInput]} />
+
+        {/* Save & Cancel inside card */}
+        {isEditing && (
+          <>
+            <TouchableOpacity style={styles.saveButton} onPress={handleSaveProfile}>
+              <Text style={styles.saveText}>💾 Save Changes</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.cancelButton} onPress={() => setIsEditing(false)}>
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </>
+        )}
       </View>
 
-      {/* Edit / Save */}
-      {isEditing ? (
-        <TouchableOpacity style={styles.saveButton} onPress={handleSaveProfile}>
-          <Text style={styles.saveText}>💾 Save Changes</Text>
-        </TouchableOpacity>
-      ) : (
+      {/* Edit Profile button outside card */}
+      {!isEditing && (
         <TouchableOpacity style={styles.editButton} onPress={() => setIsEditing(true)}>
           <Text style={styles.editText}>✏️ Edit Profile</Text>
         </TouchableOpacity>
       )}
 
-      {/* Change Password */}
+      {/* Change Password card */}
       {showPasswordForm ? (
         <View style={styles.infoBox}>
           <Text style={styles.label}>New Password</Text>
-          <TextInput
-            value={newPassword}
-            onChangeText={setNewPassword}
-            secureTextEntry
-            style={styles.input}
-            placeholder="Enter new password"
-          />
+          <View style={styles.passwordContainer}>
+            <TextInput
+              value={newPassword}
+              onChangeText={setNewPassword}
+              secureTextEntry={!showNewPassword}
+              style={[styles.input, { flex: 1, marginBottom: 0 }]}
+              placeholder="Enter new password"
+            />
+            <TouchableOpacity onPress={() => setShowNewPassword(!showNewPassword)}>
+              <Ionicons
+                name={showNewPassword ? "eye-off" : "eye"}
+                size={22}
+                color="#666"
+                style={{ marginRight: 10 }}
+              />
+            </TouchableOpacity>
+          </View>
 
           <Text style={styles.label}>Confirm Password</Text>
-          <TextInput
-            value={confirmPassword}
-            onChangeText={setConfirmPassword}
-            secureTextEntry
-            style={styles.input}
-            placeholder="Confirm new password"
-          />
+          <View style={styles.passwordContainer}>
+            <TextInput
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              secureTextEntry={!showConfirmPassword}
+              style={[styles.input, { flex: 1, marginBottom: 0 }]}
+              placeholder="Confirm new password"
+            />
+            <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)}>
+              <Ionicons
+                name={showConfirmPassword ? "eye-off" : "eye"}
+                size={22}
+                color="#666"
+                style={{ marginRight: 10 }}
+              />
+            </TouchableOpacity>
+          </View>
 
           <TouchableOpacity style={styles.saveButton} onPress={handleSavePassword}>
             <Text style={styles.saveText}>✅ Save Password</Text>
@@ -271,7 +286,6 @@ const ProfileScreen = () => {
         </TouchableOpacity>
       )}
 
-      {/* Logout */}
       <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
         <Text style={styles.logoutText}>Log Out</Text>
       </TouchableOpacity>
@@ -307,21 +321,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 15,
   },
-  avatarText: {
-    fontSize: 28,
-    fontWeight: "bold",
-    color: "#76c043",
-  },
-  username: {
-    fontSize: 22,
-    fontWeight: "bold",
-    color: "#fff",
-  },
-  email: {
-    fontSize: 16,
-    color: "#eee",
-    marginTop: 5,
-  },
+  avatarText: { fontSize: 28, fontWeight: "bold", color: "#76c043" },
+  username: { fontSize: 22, fontWeight: "bold", color: "#fff" },
+  email: { fontSize: 16, color: "#eee", marginTop: 5 },
   infoBox: {
     width: "100%",
     backgroundColor: "#fff",
@@ -345,11 +347,16 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 10,
     fontSize: 16,
+    color: "#000",
   },
-  disabledInput: {
-    backgroundColor: "#eee",
-    color: "#888",
+  passwordContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f9f9f9",
+    borderRadius: 10,
+    marginBottom: 15,
   },
+  disabledInput: { backgroundColor: "#eee", color: "#888" },
   editButton: {
     backgroundColor: "#76c043",
     padding: 15,
@@ -358,25 +365,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 15,
   },
-  editText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "bold",
-  },
+  editText: { color: "#fff", fontSize: 16, fontWeight: "bold" },
   saveButton: {
     backgroundColor: "#2e7d32",
     padding: 15,
     borderRadius: 25,
     width: "100%",
     alignItems: "center",
-    marginBottom: 5,
-    marginTop: 15,
+    marginBottom: 15,
+    marginTop: 25,
   },
-  saveText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "bold",
-  },
+  saveText: { color: "#fff", fontSize: 16, fontWeight: "bold" },
   secondaryButton: {
     backgroundColor: "#444",
     padding: 15,
@@ -385,24 +384,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 15,
   },
-  secondaryButtonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "bold",
-  },
+  secondaryButtonText: { color: "#fff", fontSize: 16, fontWeight: "bold" },
   cancelButton: {
     backgroundColor: "#999",
     padding: 15,
     borderRadius: 25,
     width: "100%",
     alignItems: "center",
-    marginTop: 10,
+    marginTop: 3,
+    marginBottom: 15,
   },
-  cancelText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "bold",
-  },
+  cancelText: { color: "#fff", fontSize: 16, fontWeight: "bold" },
   logoutButton: {
     backgroundColor: "#d9534f",
     padding: 15,
@@ -410,11 +402,7 @@ const styles = StyleSheet.create({
     width: "100%",
     alignItems: "center",
   },
-  logoutText: {
-    color: "#fff",
-    fontSize: 18,
-    fontWeight: "bold",
-  },
+  logoutText: { color: "#fff", fontSize: 18, fontWeight: "bold" },
 });
 
 export default ProfileScreen;
