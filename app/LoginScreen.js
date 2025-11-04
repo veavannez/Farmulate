@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { supabase } from "../lib/supabase";
+import { Ionicons } from "@expo/vector-icons";
 import { useProfile } from "../context/profileContext";
 
 const LoginScreen = () => {
@@ -86,15 +87,25 @@ const LoginScreen = () => {
           keyboardType="email-address"
           textContentType="emailAddress"
         />
-        <TextInput
-          placeholder="Password"
-          placeholderTextColor="#aaa"
-          secureTextEntry
-          style={styles.input}
-          value={password}
-          onChangeText={setPassword}
-          textContentType="password"
-        />
+        <View style={styles.passwordContainer}>
+          <TextInput
+            placeholder="Password"
+            placeholderTextColor="#aaa"
+            secureTextEntry={!showPassword}
+            style={[styles.input, { flex: 1, color: "#000", marginBottom: 0 }]}
+            value={password}
+            onChangeText={setPassword}
+            textContentType="password"
+          />
+          <TouchableOpacity onPress={() => setShowPassword(!showPassword)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <Ionicons
+              name={showPassword ? "eye-off" : "eye"}
+              size={22}
+              color="#666"
+              style={{ marginRight: 10 }}
+            />
+          </TouchableOpacity>
+        </View>
 
         {/* Login Button */}
         <TouchableOpacity
@@ -148,6 +159,7 @@ const styles = StyleSheet.create({
     width: "90%",
     backgroundColor: "#fff",
     padding: 12,
+    color: "#000",
     borderRadius: 10,
     marginBottom: 15,
     fontSize: 16,
