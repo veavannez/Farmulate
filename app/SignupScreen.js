@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../lib/supabase";
 
 const SignupScreen = () => {
@@ -25,6 +26,10 @@ const SignupScreen = () => {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // 👇 new state for toggles
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   // Basic email validation
   const isEmailValid = (email) =>
@@ -93,8 +98,13 @@ const SignupScreen = () => {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
       <ScrollView
-        style={{ flex: 1 }} // important for Android
-        contentContainerStyle={{ flexGrow: 1, justifyContent: "center", alignItems: "center", padding: 20 }}
+        style={{ flex: 1 }}
+        contentContainerStyle={{
+          flexGrow: 1,
+          justifyContent: "center",
+          alignItems: "center",
+          padding: 20,
+        }}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
@@ -153,24 +163,51 @@ const SignupScreen = () => {
             value={email}
             onChangeText={setEmail}
           />
-          <TextInput
-            placeholder="Password"
-            placeholderTextColor="#aaa"
-            style={styles.input}
-            secureTextEntry
-            textContentType="password"
-            value={password}
-            onChangeText={setPassword}
-          />
-          <TextInput
-            placeholder="Confirm Password"
-            placeholderTextColor="#aaa"
-            style={styles.input}
-            secureTextEntry
-            textContentType="password"
-            value={confirmPassword}
-            onChangeText={setConfirmPassword}
-          />
+
+          {/* Password field with toggle */}
+          <View style={styles.passwordContainer}>
+            <TextInput
+              placeholder="Password"
+              placeholderTextColor="#aaa"
+              secureTextEntry={!showPassword}
+              style={[styles.input, { flex: 1, marginBottom: 0, paddingHorizontal: 10 }]}
+              textContentType="password"
+              value={password}
+              onChangeText={setPassword}
+            />
+            <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+              <Ionicons
+                name={showPassword ? "eye-off" : "eye"}
+                size={22}
+                color="#666"
+                style={{ marginRight: 10 }}
+              />
+            </TouchableOpacity>
+          </View>
+
+          {/* Confirm password field with toggle */}
+          <View style={styles.passwordContainer}>
+            <TextInput
+              placeholder="Confirm Password"
+              placeholderTextColor="#aaa"
+              secureTextEntry={!showConfirmPassword}
+              style={[styles.input, { flex: 1, marginBottom: 0, paddingHorizontal: 10 }]}
+              textContentType="password"
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+            />
+            <TouchableOpacity
+              onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+            >
+              <Ionicons
+                name={showConfirmPassword ? "eye-off" : "eye"}
+                size={22}
+                color="#666"
+                style={{ marginRight: 10 }}
+              />
+            </TouchableOpacity>
+          </View>
+
           {/* Sign Up Button */}
           <TouchableOpacity
             style={[styles.button, (!isFormValid || loading) && { opacity: 0.7 }]}
@@ -202,9 +239,35 @@ const styles = StyleSheet.create({
   subtitle: { color: "#ccc", fontSize: 16, marginTop: -60, marginBottom: 0 },
   decorLeft: { position: "absolute", bottom: 0, width: 150, height: 40, right: 120 },
   decorRight: { width: 150, height: 40, left: 120, transform: [{ scaleX: -1 }] },
-  card: { width: "100%", backgroundColor: "#d9d9d9", borderRadius: 25, padding: 20, marginBottom: 15 },
-  input: { backgroundColor: "#fff", padding: 12, borderRadius: 10, marginBottom: 15, fontSize: 16 },
-  button: { backgroundColor: "#76c043", padding: 15, borderRadius: 25, alignItems: "center", marginTop: 10 },
+  card: {
+    width: "100%",
+    backgroundColor: "#d9d9d9",
+    borderRadius: 25,
+    padding: 20,
+    marginBottom: 15,
+  },
+  input: {
+    backgroundColor: "#fff",
+    color: "#000",
+    padding: 12,
+    borderRadius: 10,
+    marginBottom: 15,
+    fontSize: 16,
+  },
+  passwordContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    marginBottom: 15,
+  },
+  button: {
+    backgroundColor: "#76c043",
+    padding: 15,
+    borderRadius: 25,
+    alignItems: "center",
+    marginTop: 10,
+  },
   buttonText: { color: "#fff", fontSize: 18, fontWeight: "bold" },
   footerText: { color: "#ccc", marginTop: 3 },
   link: { color: "#76c043", fontWeight: "bold" },
