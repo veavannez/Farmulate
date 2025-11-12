@@ -5,11 +5,15 @@ env/
 # Env files
 *.env
 
-# Models
+# Models (ignore all except our specific models)
 *.pt
+!app/model/best.pt
 *.pkl
+!app/model/model.pkl
 *.csv
+!app/model/reccocrop.csv
 *.xlsx
+!app/model/avoidcrop.xlsx
 
 # Python cache
 __pycache__/
