@@ -14,9 +14,9 @@ export default function Index() {
   if (pathname !== "/") return null;
 
   useEffect(() => {
-    let timeoutId;
+    if (loadingProfile) return; // wait for profile
 
-    const redirectUser = () => {
+    const timeoutId = setTimeout(() => {
       if (redirected.current) return;
       redirected.current = true;
 
@@ -27,15 +27,9 @@ export default function Index() {
         console.log("➡️ Redirecting to LoginScreen");
         router.replace("/LoginScreen");
       }
-    };
 
-    // Wait for profile loading + splash screen
-    if (!loadingProfile) {
-      timeoutId = setTimeout(() => {
-        redirectUser();
-        setShowSplash(false);
-      }, 1000); // short delay for smooth splash
-    }
+      setShowSplash(false);
+    }, 500); // short delay for smooth transition
 
     return () => clearTimeout(timeoutId);
   }, [profile, loadingProfile, router]);

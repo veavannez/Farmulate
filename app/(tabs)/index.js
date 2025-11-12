@@ -1,34 +1,27 @@
-
-import React, { useEffect, useState } from "react";
-import { ScrollView, View, Text, StyleSheet } from "react-native";
+import { useEffect, useState } from "react";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
+import SoilNutrientsCard from "../../components/SoilNutrientsCard"; // updated import
 import WeatherCard from "../../components/WeatherCard";
-import SoilNutrientsCard from "../../components/SoilNutrientsCard";
-import { useSoil } from "../../context/soilContext";
 import { supabase } from "../../lib/supabase";
 
 export default function HomeScreen() {
-  const { soilData } = useSoil();
   const [fullName, setFullName] = useState("");
   const [loading, setLoading] = useState(true);
-
   const fetchUserProfile = async () => {
     try {
-      // Get current logged-in user
       const {
         data: { user },
         error: userError,
       } = await supabase.auth.getUser();
-
       if (userError) throw userError;
       if (!user) return;
 
-      // Fetch user's profile from your "profiles" table
+      // Fetch user's profile
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
         .select("first_name, last_name")
         .eq("user_id", user.id)
         .single();
-
       if (profileError) throw profileError;
 
       const name =
@@ -47,14 +40,12 @@ export default function HomeScreen() {
   useEffect(() => {
     fetchUserProfile();
 
-    // Listen for login/logout changes and refresh profile
+    // Refresh profile on auth state change
     const { data: listener } = supabase.auth.onAuthStateChange(() => {
       fetchUserProfile();
     });
 
-    return () => {
-      listener.subscription.unsubscribe();
-    };
+    return () => listener.subscription.unsubscribe();
   }, []);
 
   return (
@@ -73,7 +64,7 @@ export default function HomeScreen() {
         <Text style={styles.sectionTitle}>Soil Nutrients</Text>
       </View>
       <View style={styles.centerWrapper}>
-        <SoilNutrientsCard data={soilData} />
+        <SoilNutrientsCard />
       </View>
     </ScrollView>
   );

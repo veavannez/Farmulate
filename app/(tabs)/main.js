@@ -1,25 +1,28 @@
-import React, { useState, useEffect } from "react";
+// Imports
+import { Picker } from "@react-native-picker/picker";
+import * as FileSystem from "expo-file-system/legacy";
+import * as ImagePicker from "expo-image-picker";
+import { useRouter } from "expo-router";
+import LottieView from "lottie-react-native";
+import { useEffect, useState } from "react";
 import {
-  View,
+  ActionSheetIOS,
+  Alert,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
-  Image,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
-  Alert,
-  ActionSheetIOS,
+  View
 } from "react-native";
-import * as ImagePicker from "expo-image-picker";
-import * as FileSystem from "expo-file-system";
-import { Picker } from "@react-native-picker/picker";
-import { useRouter } from "expo-router";
-import { supabase } from "../../lib/supabase";
 import { useSoil } from "../../context/soilContext";
+import { supabase } from "../../lib/supabase";
 
 const MainScreen = () => {
+  // 🌱 State variables
   const [nitrogen, setNitrogen] = useState("");
   const [phosphorus, setPhosphorus] = useState("");
   const [potassium, setPotassium] = useState("");
@@ -28,37 +31,47 @@ const MainScreen = () => {
   const [newPotName, setNewPotName] = useState("");
   const [existingPots, setExistingPots] = useState([]);
   const [soilImage, setSoilImage] = useState(null);
+  const [loading, setLoading] = useState(false);
 
-  const { setSoilData } = useSoil();
+  const { setSoilData, setMappedSoilData } = useSoil();
   const router = useRouter();
+
+  // 🔑 Get valid Supabase session token
+  const getValidToken = async () => {
+    let { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) throw sessionError;
+
+    let token = sessionData?.session?.access_token;
+    if (!token || (sessionData?.session?.expires_at && Date.now() / 1000 > sessionData.session.expires_at)) {
+      const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+      if (refreshError) throw refreshError;
+      token = refreshed?.session?.access_token;
+    }
+
+    if (!token) throw new Error("No valid Supabase session token");
+    return token;
+  };
 
   // 📷 Image Picker
   const pickImage = async (fromCamera = false) => {
     try {
+      let result;
       if (fromCamera) {
         const { status } = await ImagePicker.requestCameraPermissionsAsync();
         if (status !== "granted") {
           Alert.alert("Permission Required", "Camera access is needed.");
           return;
         }
-        const result = await ImagePicker.launchCameraAsync({
-          allowsEditing: true,
-          quality: 1,
-        });
-        if (!result.canceled) setSoilImage(result.assets[0].uri);
+        result = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 1 });
       } else {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (status !== "granted") {
           Alert.alert("Permission Required", "Gallery access is needed.");
           return;
         }
-        const result = await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ImagePicker.MediaTypeOptions.Images,
-          allowsEditing: true,
-          quality: 1,
-        });
-        if (!result.canceled) setSoilImage(result.assets[0].uri);
+        result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, quality: 1 });
       }
+      if (!result.canceled) setSoilImage(result.assets[0].uri);
     } catch (err) {
       console.error(err);
       Alert.alert("Error", "Something went wrong while picking the image.");
@@ -68,10 +81,7 @@ const MainScreen = () => {
   const handleImageSelection = () => {
     if (Platform.OS === "ios") {
       ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options: ["Cancel", "Take Photo", "Choose from Gallery"],
-          cancelButtonIndex: 0,
-        },
+        { options: ["Cancel", "Take Photo", "Choose from Gallery"], cancelButtonIndex: 0 },
         (buttonIndex) => {
           if (buttonIndex === 1) pickImage(true);
           else if (buttonIndex === 2) pickImage(false);
@@ -92,13 +102,11 @@ const MainScreen = () => {
       try {
         const { data: user } = await supabase.auth.getUser();
         if (!user?.user?.id) return;
-
         const { data, error } = await supabase
           .from("pots")
           .select("name")
           .eq("user_id", user.user.id)
           .order("name", { ascending: true });
-
         if (error) throw error;
         if (data) setExistingPots(data.map((p) => p.name));
       } catch (err) {
@@ -108,24 +116,28 @@ const MainScreen = () => {
     loadPots();
   }, []);
 
-  // ☁️ Upload image to Supabase Storage
+  // ☁️ Upload Image
   const uploadImage = async (uri, userId) => {
     try {
-      const base64 = await FileSystem.readAsStringAsync(uri, { encoding: "base64" });
-      const byteCharacters = Buffer.from(base64, "base64");
-      const blob = new Blob([byteCharacters], { type: "image/jpeg" });
-      const fileName = `${Date.now()}-${userId}.jpg`;
+      if (!uri) return null;
+      const token = await getValidToken();
+      const fileUri = uri.startsWith("file://") ? uri : `file://${uri}`;
+      const ext = fileUri.split(".").pop().toLowerCase();
+      if (!["jpg", "jpeg", "png"].includes(ext)) {
+        Alert.alert("Unsupported file", "Please select a JPG, JPEG, or PNG image.");
+        return null;
+      }
 
-      const { error } = await supabase.storage
-        .from("soil-images")
-        .upload(fileName, blob, { contentType: "image/jpeg", upsert: true });
-
+      const cacheFile = `${FileSystem.cacheDirectory}${Date.now()}.${ext}`;
+      await FileSystem.copyAsync({ from: fileUri, to: cacheFile });
+      const base64 = await FileSystem.readAsStringAsync(cacheFile, { encoding: FileSystem.EncodingType.Base64 });
+      const buffer = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+      const fileName = `${userId}/${Date.now()}.${ext}`;
+      const { error } = await supabase.storage.from("soil-images").upload(fileName, buffer, { contentType: `image/${ext}`, upsert: true });
+      await FileSystem.deleteAsync(cacheFile, { idempotent: true });
       if (error) throw error;
 
-      const { data: publicUrl } = supabase.storage
-        .from("soil-images")
-        .getPublicUrl(fileName);
-
+      const { data: publicUrl } = supabase.storage.from("soil-images").getPublicUrl(fileName);
       return publicUrl.publicUrl;
     } catch (err) {
       console.error("Image upload failed:", err);
@@ -138,325 +150,271 @@ const MainScreen = () => {
   const savePot = async (potName) => {
     try {
       const { data: user } = await supabase.auth.getUser();
-      if (!user?.user?.id) {
-        Alert.alert("Error", "User not logged in.");
-        return;
-      }
-
-      const { error } = await supabase.from("pots").insert({
-        user_id: user.user.id,
-        name: potName,
-      });
-
+      if (!user?.user?.id) { Alert.alert("Error", "User not logged in."); return; }
+      const { error } = await supabase.from("pots").insert({ user_id: user.user.id, name: potName });
       if (error) throw error;
-      setExistingPots((prev) => [...prev, potName].sort((a, b) => a.localeCompare(b)));
+      setExistingPots((prev) => [...prev, potName].sort((a,b)=>a.localeCompare(b)));
     } catch (err) {
       console.error("Error saving pot:", err);
     }
   };
 
-  // 🌾 Handle FARMULATE (no ML logic, just placeholder)
+  // 🟢 YOLO/XGBoost API
+  const fetchYoloResult = async (imageUrl, image_name, potName) => {
+    try {
+      if (!imageUrl) return { soil_texture: null, recommended_crop: null, companions: [], avoid: [] };
+      const token = await getValidToken();
+      const response = await fetch("http://192.168.254.134:8000/predict", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ imageUrl, image_name, N: Number(nitrogen), P: Number(phosphorus), K: Number(potassium), ph: Number(phLevel), pot_name: potName }),
+      });
+      if (!response.ok) throw new Error(`YOLO API request failed: ${response.statusText}`);
+      const result = await response.json();
+      return { soil_texture: result.soil_texture || "Not detected", recommended_crop: result.recommended_crop || "No recommendation", companions: result.companions || [], avoid: result.avoid || [] };
+    } catch (err) {
+      console.error("YOLO API Error:", err);
+      return { soil_texture: null, recommended_crop: null, companions: [], avoid: [] };
+    }
+  };
+
+  // 🌾 Handle FARMULATE
   const handleFarmulate = async () => {
+  setLoading(true);
+  try {
+    // ✅ Validate fields
     const missing = [];
     if (!nitrogen) missing.push("Nitrogen");
     if (!phosphorus) missing.push("Phosphorus");
     if (!potassium) missing.push("Potassium");
     if (!phLevel) missing.push("pH Level");
 
-    let finalPotName = selectedPot;
-    if (selectedPot === "new") {
-      finalPotName = newPotName.trim();
-      if (!finalPotName) missing.push("Pot/Plot Name");
+    let finalPotName = selectedPot === "new" ? newPotName.trim() : selectedPot;
+    if (!finalPotName || finalPotName === "default") {
+      Alert.alert("Missing Pot/Plot","Please select or enter a valid pot/plot name.");
+      setLoading(false);
+      return;
     }
 
     if (missing.length > 0) {
       Alert.alert("Missing Fields", `Please fill in: ${missing.join(", ")}`);
+      setLoading(false);
       return;
     }
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user?.id) throw new Error("User not logged in");
 
-    // Upload image if available
-    let imageUrl = null;
-    if (soilImage) {
-      imageUrl = await uploadImage(soilImage, user.id);
-    }
-
-    if (selectedPot === "new" && finalPotName) {
+    // ✅ Ensure pot exists in `pots`
+    if (selectedPot === "new" && !existingPots.includes(finalPotName)) {
       await savePot(finalPotName);
     }
 
-    // Placeholder computed data (no ML)
+    // ✅ Upload image
+    let imageUrl = null;
+    if (soilImage) imageUrl = await uploadImage(soilImage, user.id);
+
+    // ✅ Fetch YOLO/XGBoost result
+    const image_name = soilImage ? soilImage.split("/").pop() : `soil_${Date.now()}.jpg`;
+    const yoloResult = await fetchYoloResult(imageUrl, image_name, finalPotName);
+
     const results = {
       potName: finalPotName,
-      soilTexture: "Loamy",
-      soilHealth: "Good",
-      nitrogen,
-      phosphorus,
-      potassium,
-      phLevel,
-      soilImage: imageUrl || soilImage,
-      insight: "Balanced soil. Maintain current fertilization routine.",
-      lastCrop: "Tomatoes",
-      nextCrop: "Carrots",
-      companions: ["Marigold", "Basil", "Lettuce"],
-      avoid: ["Potatoes", "Dill"],
+      soilTexture: yoloResult.soil_texture,
+      recommendedCrop: yoloResult.recommended_crop,
+      nitrogen, phosphorus, potassium, phLevel,
+      soilImage: imageUrl,
+      companions: yoloResult.companions,
+      avoid: yoloResult.avoid,
     };
 
-    // Update pot
-    try {
-      const { error: potError } = await supabase
-        .from("pots")
-        .update({
-          nitrogen,
-          phosphorus,
-          potassium,
-          ph_level: phLevel,
-          soil_texture: results.soilTexture,
-          soil_health: results.soilHealth,
-          insight: results.insight,
-          last_crop: results.lastCrop,
-          next_crop: results.nextCrop,
-          companions: results.companions,
-          avoid: results.avoid,
-          soil_image_url: imageUrl,
-        })
-        .eq("user_id", user.id)
-        .eq("name", finalPotName);
-
-      if (potError) throw potError;
-    } catch (err) {
-      console.error("Error updating pot data:", err);
-    }
-
-    // Insert report
-    try {
-      const { error: reportError } = await supabase.from("reports").insert({
+    // ✅ Insert **only once** into `soil_results`
+    const { data: insertedData, error: reportError } = await supabase
+      .from("soil_results")
+      .insert([{
         user_id: user.id,
         pot_name: finalPotName,
-        nitrogen,
-        phosphorus,
-        potassium,
-        ph_level: phLevel,
-        soil_texture: results.soilTexture,
-        soil_health: results.soilHealth,
-        soil_image_url: imageUrl,
-        insight: results.insight,
-        last_crop: results.lastCrop,
-        next_crop: results.nextCrop,
+        image_name,
+        image_url: imageUrl,
+        prediction: results.soilTexture,
+        recommended_crop: results.recommendedCrop,
+        n: Number(nitrogen),
+        p: Number(phosphorus),
+        k: Number(potassium),
+        ph_level: Number(phLevel),
         companions: results.companions,
-        avoid: results.avoid,
+        avoids: results.avoid,
         created_at: new Date().toISOString(),
-      });
+      }])
+      .select()
+      .single();
 
-      if (reportError) throw reportError;
-    } catch (err) {
-      console.error("Error inserting report:", err);
-    }
+    if (reportError) throw reportError;
 
-    setSoilData(results);
+    // ✅ Update context
+    setMappedSoilData({
+      potName: insertedData.pot_name,
+      soilTexture: insertedData.prediction,
+      recommendedCrop: insertedData.recommended_crop,
+      nitrogen: insertedData.n,
+      phosphorus: insertedData.p,
+      potassium: insertedData.k,
+      phLevel: insertedData.ph_level,
+      soilImage: insertedData.image_url,
+      companions: insertedData.companions,
+      avoid: insertedData.avoids,
+      generatedAt: insertedData.created_at,
+    });
+
+    // ✅ Navigate
     router.push("/report");
 
-    // Reset form
-    setNitrogen("");
-    setPhosphorus("");
-    setPotassium("");
-    setPhLevel("");
-    setNewPotName("");
-    setSoilImage(null);
-    setSelectedPot("new");
-  };
+    // ✅ Reset form
+    setNitrogen(""); setPhosphorus(""); setPotassium(""); setPhLevel(""); setNewPotName(""); setSoilImage(null); setSelectedPot("default");
+
+  } catch (err) {
+    console.error("Farmulate Error:", err);
+    Alert.alert("Error", err.message || "Something went wrong.");
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   // 🧱 UI
+  const handleDeletePot = async () => {
+    Alert.alert(
+      "Delete Pot/Plot",
+      `Are you sure you want to delete "${selectedPot}"?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const { data: { user } } = await supabase.auth.getUser();
+              const { error } = await supabase.from("pots").delete().eq("user_id", user.id).eq("name", selectedPot);
+              if (error) throw error;
+              setExistingPots(existingPots.filter(p => p !== selectedPot));
+              setSelectedPot("default");
+            } catch (err) {
+              console.error("Error deleting pot:", err);
+              Alert.alert("Error", "Could not delete pot.");
+            }
+          },
+        },
+      ]
+    );
+  };
+
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-    >
-      <ScrollView
-        contentContainerStyle={styles.scrollContainer}
-        showsVerticalScrollIndicator={false}
-      >
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+      <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
+        {/* Decor */}
         <View style={styles.decorContainer}>
-          <Image
-            source={require("../../assets/leaves-decor.png")}
-            style={styles.decorLeft}
-            resizeMode="contain"
-          />
-          <Image
-            source={require("../../assets/leaves-decor.png")}
-            style={styles.decorRight}
-            resizeMode="contain"
-          />
+          <Image source={require("../../assets/leaves-decor.png")} style={styles.decorLeft} resizeMode="contain" />
+          <Image source={require("../../assets/leaves-decor.png")} style={styles.decorRight} resizeMode="contain" />
         </View>
 
+        {/* Form Card */}
         <View style={styles.card}>
           <Text style={styles.title}>Soil Information</Text>
 
+          {/* Pot/Plot Picker + compact delete */}
           <Text style={styles.label}>Select Pot/Plot</Text>
-          <View style={styles.pickerContainer}>
-            <Picker
-              selectedValue={selectedPot}
-              onValueChange={(val) => setSelectedPot(val)}
-              style={styles.picker}
-              dropdownIconColor="#333"
-            >
-              <Picker.Item label=" Select Pot/Plot" value="default" color="#aaa" />
-              {existingPots.map((pot, idx) => (
-                <Picker.Item key={idx} label={pot} value={pot} color="#333" />
-              ))}
-              <Picker.Item label="🌱 Add New Pot/Plot" value="new" color="#333" />
-            </Picker>
+          <View style={styles.potPickerRow}>
+            <View style={styles.pickerContainer}>
+              <Picker
+                selectedValue={selectedPot}
+                onValueChange={(val) => setSelectedPot(val)}
+                style={styles.picker}
+                dropdownIconColor="#fff"
+              >
+                <Picker.Item label=" Select Pot/Plot" value="default" color="#aaa" />
+                {existingPots.map((pot, idx) => (
+                  <Picker.Item key={idx} label={pot} value={pot} color="#fff" />
+                ))}
+                <Picker.Item label="🌱 Add New Pot/Plot" value="new" color="#fff" />
+              </Picker>
+            </View>
+
+            {selectedPot !== "default" && selectedPot !== "new" && (
+              <TouchableOpacity style={styles.deleteIconBtn} onPress={handleDeletePot}>
+                <Text style={styles.deleteIcon}>🗑</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
           {selectedPot === "new" && (
-            <TextInput
-              placeholder="Enter new pot/plot name"
-              placeholderTextColor="#aaa"
-              style={styles.input}
-              value={newPotName}
-              onChangeText={setNewPotName}
-            />
+            <TextInput placeholder="Enter new pot/plot name" placeholderTextColor="#aaa" style={styles.input} value={newPotName} onChangeText={setNewPotName} />
           )}
 
-          <Text style={styles.label}>Nitrogen</Text>
-          <TextInput
-            placeholder="Nitrogen"
-            placeholderTextColor="#aaa"
-            style={styles.input}
-            value={nitrogen}
-            onChangeText={setNitrogen}
-          />
+          {/* Nutrient Inputs */}
+          {["Nitrogen", "Phosphorus", "Potassium", "pH Level"].map((label,i)=>(
+            <View key={i}>
+              <Text style={styles.label}>{label}</Text>
+              <TextInput placeholder={label} placeholderTextColor="#aaa" style={styles.input} value={label==="Nitrogen"?nitrogen:label==="Phosphorus"?phosphorus:label==="Potassium"?potassium:phLevel} onChangeText={label==="Nitrogen"?setNitrogen:label==="Phosphorus"?setPhosphorus:label==="Potassium"?setPotassium:setPhLevel} />
+            </View>
+          ))}
 
-          <Text style={styles.label}>Phosphorus</Text>
-          <TextInput
-            placeholder="Phosphorus"
-            placeholderTextColor="#aaa"
-            style={styles.input}
-            value={phosphorus}
-            onChangeText={setPhosphorus}
-          />
-
-          <Text style={styles.label}>Potassium</Text>
-          <TextInput
-            placeholder="Potassium"
-            placeholderTextColor="#aaa"
-            style={styles.input}
-            value={potassium}
-            onChangeText={setPotassium}
-          />
-
-          <Text style={styles.label}>pH Level</Text>
-          <TextInput
-            placeholder="pH Level"
-            placeholderTextColor="#aaa"
-            style={styles.input}
-            value={phLevel}
-            onChangeText={setPhLevel}
-          />
-
+          {/* Image Upload */}
           <TouchableOpacity style={styles.uploadBtn} onPress={handleImageSelection}>
-            <Text style={styles.uploadText}>
-              {soilImage ? "✅ Change Soil Image" : "📷 Add Soil Image"}
-            </Text>
+            <Text style={styles.uploadText}>{soilImage?"✅ Change Soil Image":"📷 Add Soil Image"}</Text>
           </TouchableOpacity>
 
           {soilImage && (
             <View style={styles.previewContainer}>
-              <Image
-                source={{ uri: soilImage }}
-                style={styles.preview}
-                resizeMode="cover"
-              />
-              <TouchableOpacity
-                style={styles.removeBtn}
-                onPress={() => setSoilImage(null)}
-              >
+              <Image source={{ uri: soilImage }} style={styles.preview} resizeMode="cover" />
+              <TouchableOpacity style={styles.removeBtn} onPress={()=>setSoilImage(null)}>
                 <Text style={styles.removeText}>❌</Text>
               </TouchableOpacity>
             </View>
           )}
         </View>
 
+        {/* Submit Button */}
         <TouchableOpacity style={styles.button} onPress={handleFarmulate}>
           <Text style={styles.buttonText}>FARMULATE</Text>
         </TouchableOpacity>
+
+        {loading && (
+          <View style={styles.loadingOverlay}>
+            <LottieView source={require("../../assets/animations/spinner.json")} autoPlay loop style={{ width: 80, height: 80 }} />
+            <Text style={styles.loadingText}>Processing...</Text>
+          </View>
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
 };
 
+// Styles
 const styles = StyleSheet.create({
-  pickerContainer: {
-    backgroundColor: "#fff",
-    borderRadius: 10,
-    marginBottom: 15,
-    overflow: "hidden",
-  },
-  picker: { color: "#333", fontSize: 16 },
-  scrollContainer: {
-    flexGrow: 1,
-    backgroundColor: "#fff",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 20,
-  },
+  potPickerRow: { flexDirection: "row", alignItems: "center", marginBottom: 15 },
+  deleteIconBtn: { marginLeft: 10, padding: 5 },
+  deleteIcon: { fontSize: 22, color: "#800020" }, // burgundy
+
+  pickerContainer: { backgroundColor: "#fff", borderRadius: 10, marginBottom: 0, overflow: "hidden", flex:1 },
+  picker: { color: "#aaa", fontSize: 16 },
+  scrollContainer: { flexGrow: 1, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", padding: 20 },
   decorContainer: { flexDirection: "row", justifyContent: "center", marginBottom: -15 },
   decorLeft: { width: 100, height: 40, marginRight: 100 },
-  decorRight: { width: 100, height: 40, transform: [{ scaleX: -1 }] },
-  card: {
-    width: "100%",
-    backgroundColor: "#0a2f0f",
-    borderRadius: 25,
-    padding: 20,
-    marginTop: 10,
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: "bold",
-    color: "#fff",
-    textAlign: "center",
-    marginBottom: 20,
-  },
-  uploadBtn: {
-    backgroundColor: "#8bc34a",
-    padding: 15,
-    borderRadius: 10,
-    alignItems: "center",
-    marginBottom: 10,
-    marginTop: 10,
-  },
-  uploadText: { color: "#fff", fontWeight: "600", fontSize: 16 },
-  previewContainer: { marginTop: 10, alignItems: "center", position: "relative" },
-  preview: { width: "100%", height: 150, borderRadius: 10 },
-  removeBtn: {
-    position: "absolute",
-    top: 5,
-    right: 5,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    borderRadius: 20,
-    padding: 5,
-  },
-  removeText: { color: "#fff", fontSize: 14 },
-  label: { fontWeight: "bold", marginBottom: 5, color: "#fff" },
-  input: {
-    backgroundColor: "#fff",
-    padding: 12,
-    borderRadius: 10,
-    marginBottom: 15,
-    fontSize: 16,
-  },
-  button: {
-    backgroundColor: "#004d00",
-    padding: 15,
-    borderRadius: 25,
-    alignItems: "center",
-    marginTop: 20,
-    width: "90%",
-  },
-  buttonText: { color: "#fff", fontSize: 18, fontWeight: "bold" },
+  decorRight: { width: 100, height: 40, transform:[{ scaleX: -1 }] },
+  card: { width:"100%", backgroundColor:"#0a2f0f", borderRadius:25, padding:20, marginTop:10 },
+  title:{ fontSize:22, fontWeight:"bold", color:"#fff", textAlign:"center", marginBottom:20 },
+  uploadBtn:{ backgroundColor:"#8bc34a", padding:15, borderRadius:10, alignItems:"center", marginBottom:10, marginTop:10 },
+  uploadText:{ color:"#fff", fontWeight:"600", fontSize:16 },
+  previewContainer:{ marginTop:10, alignItems:"center", position:"relative" },
+  preview:{ width:"100%", height:150, borderRadius:10 },
+  removeBtn:{ position:"absolute", top:5, right:5, backgroundColor:"rgba(0,0,0,0.6)", borderRadius:20, padding:5 },
+  removeText:{ color:"#fff", fontSize:14 },
+  label:{ fontWeight:"bold", marginBottom:5, color:"#fff" },
+  input:{ backgroundColor:"#fff", padding:12, borderRadius:10, marginBottom:15, fontSize:16 },
+  button:{ backgroundColor:"#004d00", padding:15, borderRadius:25, alignItems:"center", marginTop:20, width:"90%" },
+  buttonText:{ color:"#fff", fontSize:18, fontWeight:"bold" },
+  loadingOverlay:{ position:"absolute", top:0,left:0,right:0,bottom:0, backgroundColor:"rgba(255,255,255,0.8)", justifyContent:"center", alignItems:"center", paddingTop:250, zIndex:10 },
+  loadingText:{ marginTop:5, fontSize:13, color:"#6B7280", fontWeight:"550" },
 });
 
 export default MainScreen;

@@ -221,7 +221,7 @@ const ProfileScreen = () => {
       {/* Edit Profile button outside card */}
       {!isEditing && (
         <TouchableOpacity style={styles.editButton} onPress={() => setIsEditing(true)}>
-          <Text style={styles.editText}>✏️ Edit Profile</Text>
+          <Text style={styles.editText}>Edit Profile</Text>
         </TouchableOpacity>
       )}
 

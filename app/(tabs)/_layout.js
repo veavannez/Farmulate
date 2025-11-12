@@ -1,64 +1,96 @@
 import React from "react";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { SafeAreaView, View, Image, StyleSheet, Dimensions } from "react-native";
+import {
+  Dimensions,
+  Image,
+  Platform,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const screenWidth = Dimensions.get("window").width;
 
-  // Dynamic logo size based on screen width
-  const logoWidth = screenWidth < 400 ? 120 : 150;
-  const logoHeight = screenWidth < 400 ? 70 : 100;
+  const logoSize =
+    screenWidth < 400 ? { width: 120, height: 50 } : { width: 50, height: 60 };
 
   const TABS = [
     { name: "index", title: "Home", icon: "home" },
     { name: "weather", title: "Weather", icon: "cloud" },
-    { name: "main", title: "Farmulate", icon: "leaf" },
+    { name: "main", title: "Farmulate", icon: "leaf", isFAB: true },
     { name: "history", title: "History", icon: "time" },
     { name: "profile", title: "Profile", icon: "person" },
   ];
 
+  const renderTab = (tab, color) => (
+  <View style={[styles.tabWrapper, tab.isFAB && { flex: 0 }]}>
+    <Ionicons
+      name={tab.icon}
+      size={24}
+      color={color}
+      style={styles.tabIcon} // apply marginTop
+    />
+    {!tab.isFAB && (
+      <Text style={[styles.tabLabel, { color }]}>
+        {tab.title}
+      </Text>
+    )}
+  </View>
+);
+
+
   return (
-    <View style={{ flex: 1, backgroundColor: "#002d00" }}>
-      {/* Header with SafeArea */}
-      <SafeAreaView
-        style={[
-          styles.header,
-          { paddingTop: insets.top, height: 60 + insets.top },
-        ]}
-      >
+    <View style={styles.container}>
+      {/* Header */}
+      <SafeAreaView style={[styles.header, { paddingTop: insets.top }]}>
         <Image
           source={require("../../assets/farmulate-logo.png")}
-          style={[styles.logo, { width: logoWidth, height: logoHeight }]}
+          style={styles.logo} // use only styles.logo
           resizeMode="contain"
-          accessible={false}
+          accessibilityLabel="Farmulate Logo"
         />
       </SafeAreaView>
 
       {/* Tabs */}
       <Tabs
-        screenOptions={{
-          headerShown: false,
-          tabBarActiveTintColor: "#2e7d32",
-          tabBarStyle: {
-            backgroundColor: "#f8f8f8",
-            height: 60,
-            borderTopWidth: 0.3,
-            borderTopColor: "#ccc",
-          },
-        }}
+      screenOptions={{
+        headerShown: false,
+        tabBarShowLabel: false,
+        tabBarActiveTintColor: "#2e7d32",
+        tabBarInactiveTintColor: "#555",
+        tabBarStyle: {
+          backgroundColor: "#fff",   // normal bar color
+          height: 65,
+          borderTopWidth: 0.3,
+          borderTopColor: "#ccc",
+          // remove position, left, right, borderRadius, shadow
+        },
+      }}
       >
         {TABS.map((tab) => (
           <Tabs.Screen
             key={tab.name}
             name={tab.name}
             options={{
-              title: tab.title,
-              tabBarIcon: ({ color, size }) => (
-                <Ionicons name={tab.icon} color={color} size={size} />
-              ),
+              tabBarIcon: ({ focused, color }) => {
+                if (tab.isFAB) {
+                  return (
+                    <View style={styles.fabContainer}>
+                      <Ionicons
+                        name={tab.icon}
+                        size={28}
+                        color={focused ? "#fff" : "#76c043"}
+                      />
+                    </View>
+                  );
+                }
+                return renderTab(tab, color);
+              },
             }}
           />
         ))}
@@ -68,14 +100,58 @@ export default function TabsLayout() {
 }
 
 const styles = StyleSheet.create({
-  header: {
+  container: {
+    flex: 1,
     backgroundColor: "#002d00",
-    justifyContent: "center",
-    alignItems: "flex-start",
-    paddingHorizontal: 20,
+  },
+    header: {
+    backgroundColor: "#002d00",
+    justifyContent: "center",      // vertically center the logo
+    alignItems: "flex-start",      // keep it left-aligned
+    paddingHorizontal: 5,
+    height: 70,
   },
   logo: {
-    width: 150,
-    height: 100,
+    height: 90, 
+    marginBottom: 20,      // fill header height
+    width: undefined,  // let width scale automatically
+    aspectRatio: 2,    // adjust to match your logo’s natural ratio
+  },
+  fabContainer: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: "#2e7d32",
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: -5, // floating above the tab bar
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowOffset: { width: 0, height: 5 },
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  tabBarStyle: {
+  backgroundColor: "#fff",   
+  height: 80,                // bar height
+  borderTopWidth: 0.3,
+  borderTopColor: "#ccc",
+  paddingBottom: 15,         // add space at the bottom so icons sit lower
+  paddingTop: 5,             // optional: keeps icons centered vertically
+},
+  tabWrapper: {
+    flex: 1,        // each side tab takes equal space
+    justifyContent: "center",
+    alignItems: "center",
+    minWidth: 60,   // ensures label fits (especially for Weather)
+  },
+  tabIcon: {
+    marginTop: 5, // slightly lower the icon
+  },
+  tabLabel: {
+    fontSize: 12,   // readable size
+    fontWeight: "500",
+    textAlign: "center",
+    marginBottom: -15, // space from bottom
   },
 });
