@@ -132,7 +132,7 @@ export default function WeatherScreen() {
           source={require("../../assets/animations/spinner.json")}
           autoPlay
           loop
-          style={{ width: width * 0.25, height: width * 0.25 }}
+          style={{ width: width * 0.18, height: width * 0.18 }}
         />
         <Text style={styles.loadingText}>Loading...</Text>
       </View>
@@ -260,7 +260,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     flexWrap: "wrap",
     width: "100%",
-    lineHeight: scale(22),
+    lineHeight: scale(18),
   },
   time: { fontSize: scale(17), color: "#ddd" },
   advisory: {

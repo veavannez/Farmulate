@@ -89,6 +89,7 @@ class PredictRequest(BaseModel):
     P: float
     K: float
     ph: float
+    pot_name: str
 
     class Config:
         populate_by_name = True
@@ -193,6 +194,7 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
     try:
         supabase.table("soil_results").insert({
             "user_id": user_id,
+            "pot_name" : req.pot_name,
             "image_name": req.image_name or os.path.basename(req.imageUrl),
             "image_url": req.imageUrl,
             "prediction": soil_texture,

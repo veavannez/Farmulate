@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+ultralytics
+pillow
+python-multipart
+pandas
+numpy
+scikit-learn
+openpyxl
+python-dotenv
+supabase
+python-jose
+requests

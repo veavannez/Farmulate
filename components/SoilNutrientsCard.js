@@ -1,7 +1,9 @@
-import React, { useEffect, useState, useCallback } from "react";
-import { View, Text, StyleSheet, Dimensions, TouchableOpacity, ActivityIndicator } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { useCallback, useEffect, useState } from "react";
+import { ActivityIndicator, Dimensions, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useSoil } from "../context/soilContext";
 import { supabase } from "../lib/supabase";
+import { getPhCategory } from "../utils/helpers";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -9,13 +11,19 @@ const SoilNutrientsCard = () => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const { soilData: soilContextData } = useSoil();
 
   const fetchLatestReport = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
+      // Prefer context data (immediate display after creating a report)
+      if (soilContextData) {
+        setData(soilContextData);
+        return;
+      }
 
-      // Get current user
+      // Otherwise, fetch latest from Supabase
       const {
         data: { user },
         error: userError,
@@ -23,7 +31,6 @@ const SoilNutrientsCard = () => {
       if (userError) throw userError;
       if (!user) throw new Error("User not logged in");
 
-      // Fetch latest soil report for this user
       const { data: result, error: supaError } = await supabase
         .from("soil_results")
         .select("*")
@@ -41,7 +48,7 @@ const SoilNutrientsCard = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [soilContextData]);
 
   useEffect(() => {
     fetchLatestReport();
@@ -68,11 +75,19 @@ const SoilNutrientsCard = () => {
       </View>
     );
 
+  // Normalize nutrient values from either DB (n,p,k,ph_level) or context (nitrogen,phosphorus,potassium,phLevel)
+  const nitrogenValue = data?.n ?? data?.nitrogen ?? 0;
+  const phosphorusValue = data?.p ?? data?.phosphorus ?? 0;
+  const potassiumValue = data?.k ?? data?.potassium ?? 0;
+  const phValue = data?.ph_level ?? data?.phLevel ?? data?.ph ?? 0;
+  // Use category color for pH to get a slightly darker/meaningful shade
+  const phCategory = getPhCategory(Number(phValue));
+
   const nutrients = [
-    { label: "Nitrogen", value: data.n ?? 0, color: "#388e3c", icon: <Ionicons name="leaf" size={28} color="#fff" /> },
-    { label: "Phosphorus", value: data.p ?? 0, color: "#43a047", icon: <MaterialCommunityIcons name="beaker-outline" size={28} color="#fff" /> },
-    { label: "Potassium", value: data.k ?? 0, color: "#66bb6a", icon: <MaterialCommunityIcons name="flask" size={28} color="#fff" /> },
-    { label: "pH Level", value: data.ph_level ?? 0, color: "#81c784", icon: <Ionicons name="water" size={28} color="#fff" /> },
+    { label: "Nitrogen", value: nitrogenValue, color: "#388e3c", icon: <Ionicons name="leaf" size={28} color="#fff" /> },
+    { label: "Phosphorus", value: phosphorusValue, color: "#43a047", icon: <MaterialCommunityIcons name="beaker-outline" size={28} color="#fff" /> },
+    { label: "Potassium", value: potassiumValue, color: "#66bb6a", icon: <MaterialCommunityIcons name="flask" size={28} color="#fff" /> },
+    { label: "pH Level", value: phValue, color: phCategory.color || "#4caf50", icon: <Ionicons name="water" size={28} color="#fff" /> },
   ];
 
   const renderCard = (n, idx) => (
@@ -80,15 +95,18 @@ const SoilNutrientsCard = () => {
       {n.icon}
       <Text style={styles.value}>{n.value}</Text>
       <Text style={styles.label}>{n.label}</Text>
+      {n.label === "pH Level" && (
+        <Text style={styles.phCategoryText}>{getPhCategory(Number(n.value)).label}</Text>
+      )}
     </View>
   );
 
   return (
     <View style={[styles.panel, { width: SCREEN_WIDTH - 40 }]}>
       <View style={styles.lastChecked}>
-        <Text style={styles.lastCheckedText}>🪴 Pot/Plot: {data.pot_name || "Unnamed Pot"}</Text>
+        <Text style={styles.lastCheckedText}>🪴 Pot/Plot: {data.potName || data.pot_name || "Unnamed Pot"}</Text>
         <Text style={styles.lastCheckedText}>
-          ⏱ Last Checked: {data.created_at ? new Date(data.created_at).toLocaleString() : "N/A"}
+          ⏱ Last Checked: {data.generatedAt || data.created_at ? new Date(data.generatedAt || data.created_at).toLocaleString() : "N/A"}
         </Text>
         <TouchableOpacity onPress={fetchLatestReport} style={styles.refreshButtonSmall}>
           <Ionicons name="refresh" size={20} color="#fff" />
@@ -153,6 +171,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#1b5e20",
     borderRadius: 12,
   },
+  phCategoryText: { marginTop: 8, color: "rgba(255,255,255,0.9)", fontWeight: "700", fontSize: 12 },
   emptyContainer: { height: 120, justifyContent: "center", alignItems: "center" },
   emptyText: { fontSize: 18, fontWeight: "600", color: "#555" },
   refreshButton: {

@@ -1,20 +1,39 @@
 // app/report.js
-import React, { useEffect, useState } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  Image,
-  TouchableOpacity,
-} from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import { useRouter, useLocalSearchParams } from "expo-router";
-import { supabase } from "../lib/supabase";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useEffect, useState } from "react";
+import {
+  Image,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { useSoil } from "../context/soilContext";
+import { supabase } from "../lib/supabase";
+
+const COLORS = {
+  high: "#4caf50",      // green
+  modHigh: "#fbc02d",   // yellow
+  modLow: "#fb8c00",    // orange
+  low: "#c62828",       // red
+};
+
+// Soil pH categories
+function getPhCategory(pH) {
+  if (pH < 4.6) return { label: "Extremely Acidic", color: COLORS.low };
+  if (pH >= 4.6 && pH <= 5.5) return { label: "Strongly Acidic", color: COLORS.modLow };
+  if (pH >= 5.6 && pH <= 6.5) return { label: "Acidic", color: COLORS.modHigh };
+  if (pH >= 6.6 && pH <= 7.5) return { label: "Neutral", color: COLORS.high };
+  if (pH >= 7.6 && pH <= 8.5) return { label: "Alkaline", color: COLORS.modHigh };
+  if (pH >= 8.6 && pH <= 9.1) return { label: "Strongly Alkaline", color: COLORS.modLow };
+  if (pH > 9.1) return { label: "Extremely Alkaline", color: COLORS.low };
+  return { label: "Unknown", color: COLORS.low };
+}
 
 const ReportScreen = () => {
-  const { mappedSoilData } = useSoil(); // <-- use context
+  const { soilData: mappedSoilData } = useSoil();
   const [soilData, setSoilData] = useState(mappedSoilData || null);
   const [loaded, setLoaded] = useState(false);
   const router = useRouter();
@@ -42,7 +61,6 @@ const ReportScreen = () => {
         let report = null;
 
         if (reportId) {
-          // History: fetch specific report
           const { data, error } = await supabase
             .from("soil_results")
             .select("*")
@@ -52,10 +70,8 @@ const ReportScreen = () => {
           if (error) throw error;
           report = data;
         } else if (mappedSoilData) {
-          // MainScreen: use context
           report = mappedSoilData;
         } else {
-          // Fallback: fetch latest report
           const { data, error } = await supabase
             .from("soil_results")
             .select("*")
@@ -81,6 +97,13 @@ const ReportScreen = () => {
             companions: report.companions || report.companions || [],
             avoid: report.avoids || report.avoid || [],
             generatedAt: report.created_at || report.generatedAt,
+          });
+          console.log("📊 report.js - Soil data loaded:", {
+            potName: report.pot_name || report.potName,
+            nitrogen: report.n ?? report.nitrogen,
+            phosphorus: report.p ?? report.phosphorus,
+            potassium: report.k ?? report.potassium,
+            phLevel: report.ph_level ?? report.phLevel,
           });
         }
       } catch (err) {
@@ -110,7 +133,6 @@ const ReportScreen = () => {
     );
   }
 
-  // Fixed green hues for nutrient boxes
   const nutrients = [
     { label: "Nitrogen", value: soilData.nitrogen, color: "#388e3c", icon: <Ionicons name="leaf" size={24} color="#fff" /> },
     { label: "Phosphorus", value: soilData.phosphorus, color: "#43a047", icon: <MaterialCommunityIcons name="beaker-outline" size={24} color="#fff" /> },
@@ -137,15 +159,15 @@ const ReportScreen = () => {
         </Text>
 
         <View style={styles.metaBox}>
-            <Text
-              style={styles.metaTitle}
-              numberOfLines={1}      // Ensures single line
-              ellipsizeMode="tail"   // Adds "..." if too long
-            >
-              🪴 {soilData.potName || "Unnamed Pot/Plot"}
-            </Text>
-            <Text style={styles.metaDate}>{formatDate(soilData.generatedAt)}</Text>
-          </View>
+          <Text
+            style={styles.metaTitle}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
+            🪴 {soilData.potName || "Unnamed Pot/Plot"}
+          </Text>
+          <Text style={styles.metaDate}>{formatDate(soilData.generatedAt)}</Text>
+        </View>
 
         <View style={styles.card}>
           {soilData.soilImage && (
@@ -198,13 +220,34 @@ const ReportScreen = () => {
 
         <View style={styles.card}>
           <View style={styles.nutrientGrid}>
-            {nutrients.map((n, idx) => (
-              <View key={idx} style={[styles.nutrientBox, { backgroundColor: n.color }]}>
-                {n.icon}
-                <Text style={styles.nutrientValue}>{n.value}</Text>
-                <Text style={styles.nutrientLabel}>{n.label}</Text>
-              </View>
-            ))}
+            {nutrients.map((n, idx) => {
+              const isPh = n.label === "pH";
+              const phCategory = isPh ? getPhCategory(parseFloat(n.value)) : null;
+
+              return (
+                <View
+                  key={idx}
+                  style={[
+                    styles.nutrientBox,
+                    { 
+                      backgroundColor: isPh && phCategory ? phCategory.color : n.color,
+                      height: 140,          // fixed height for all boxes
+                      justifyContent: "center"
+                    },
+                  ]}
+                >
+                  {n.icon}
+                  <Text style={styles.nutrientValue}>{n.value}</Text>
+                  <Text style={styles.nutrientLabel}>{n.label}</Text>
+
+                  {isPh && phCategory && (
+                    <Text style={[styles.phCategoryText, { color: "#fff", marginTop: 4 }]}>
+                      {phCategory.label}
+                    </Text>
+                  )}
+                </View>
+              );
+            })}
           </View>
         </View>
       </ScrollView>
@@ -217,6 +260,7 @@ export default ReportScreen;
 // ------------------------------
 // Styles remain unchanged
 const styles = StyleSheet.create({
+
   container: { flex: 1, backgroundColor: "#f5f5f5" },
   header: { flexDirection: "row", backgroundColor: "#002d00", justifyContent: "center", height: 65 },
   backButtonFloat: { backgroundColor: "#fff", borderRadius: 20, padding: 8, marginTop: 5, elevation: 4, marginRight: 160, shadowColor: "#000", shadowOpacity: 0.15, shadowOffset: { width: 0, height: 2 }, shadowRadius: 3, alignSelf: "center" },

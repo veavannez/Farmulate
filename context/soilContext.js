@@ -39,21 +39,24 @@ export const SoilProvider = ({ children }) => {
 
   const mappedSoilData = {
     id: data.id || Date.now().toString(),
-    soilTexture: data.prediction || "Unknown",
-    recommendedCrop: data.recommended_crop || "No recommendation",
-    companions: data.companions || [],
-    avoids: data.avoids || [],
-    nitrogen: data.n,
-    phosphorus: data.p,
-    potassium: data.k,
-    phLevel: data.ph_level,
-    potName: data.potName || "Unnamed Soil",
-    soilImage: data.image_url || null,
-    generatedAt: data.created_at || new Date().toISOString(),
+    // Accept either snake_case (DB) or camelCase (app) field names
+    soilTexture: data.prediction || data.soilTexture || "Unknown",
+    recommendedCrop: data.recommended_crop || data.recommendedCrop || "No recommendation",
+    companions: data.companions || data.companions || [],
+    avoids: data.avoids || data.avoid || [],
+    nitrogen: data.n ?? data.nitrogen ?? "",
+    phosphorus: data.p ?? data.phosphorus ?? "",
+    potassium: data.k ?? data.potassium ?? "",
+    phLevel: data.ph_level ?? data.phLevel ?? data.phLevel ?? "",
+    potName: data.potName || data.pot_name || "Unnamed Soil",
+    soilImage: data.image_url || data.soilImage || null,
+    generatedAt: data.created_at || data.generatedAt || new Date().toISOString(),
   };
 
   setSoilData(mappedSoilData);
   addToHistory(mappedSoilData);
+
+    console.log("📝 soilContext.js - Mapped data:", mappedSoilData);
 };
 
 

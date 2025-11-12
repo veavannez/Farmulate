@@ -97,24 +97,28 @@ const MainScreen = () => {
   };
 
   // 🌿 Load user's pots
-  useEffect(() => {
     const loadPots = async () => {
       try {
         const { data: user } = await supabase.auth.getUser();
         if (!user?.user?.id) return;
+
         const { data, error } = await supabase
           .from("pots")
           .select("name")
           .eq("user_id", user.user.id)
           .order("name", { ascending: true });
+
         if (error) throw error;
-        if (data) setExistingPots(data.map((p) => p.name));
+        setExistingPots(data?.map(p => p.name) || []);
       } catch (err) {
         console.error("Error loading pots:", err);
       }
     };
-    loadPots();
-  }, []);
+
+// Call on mount
+useEffect(() => {
+  loadPots();
+}, []);
 
   // ☁️ Upload Image
   const uploadImage = async (uri, userId) => {
@@ -148,21 +152,31 @@ const MainScreen = () => {
 
   // 🪴 Save new pot
   const savePot = async (potName) => {
-    try {
-      const { data: user } = await supabase.auth.getUser();
-      if (!user?.user?.id) { Alert.alert("Error", "User not logged in."); return; }
-      const { error } = await supabase.from("pots").insert({ user_id: user.user.id, name: potName });
-      if (error) throw error;
-      setExistingPots((prev) => [...prev, potName].sort((a,b)=>a.localeCompare(b)));
-    } catch (err) {
-      console.error("Error saving pot:", err);
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user?.id) { Alert.alert("Error", "User not logged in."); return; }
+
+    if (existingPots.includes(potName)) {
+      Alert.alert("Duplicate Pot", "This pot name already exists.");
+      return;
     }
-  };
+
+    const { error } = await supabase
+      .from("pots")
+      .insert({ user_id: user.id, name: potName });
+
+    if (error) throw error;
+
+    setExistingPots(prev => [...prev, potName].sort((a,b) => a.localeCompare(b)));
+  } catch (err) {
+    console.error("Error saving pot:", err);
+  }
+};
 
   // 🟢 YOLO/XGBoost API
   const fetchYoloResult = async (imageUrl, image_name, potName) => {
     try {
-      if (!imageUrl) return { soil_texture: null, recommended_crop: null, companions: [], avoid: [] };
+      if (!imageUrl) return { prediction: null, recommended_crop: null, companions: [], avoid: [] };
       const token = await getValidToken();
       const response = await fetch("http://192.168.254.134:8000/predict", {
         method: "POST",
@@ -171,10 +185,10 @@ const MainScreen = () => {
       });
       if (!response.ok) throw new Error(`YOLO API request failed: ${response.statusText}`);
       const result = await response.json();
-      return { soil_texture: result.soil_texture || "Not detected", recommended_crop: result.recommended_crop || "No recommendation", companions: result.companions || [], avoid: result.avoid || [] };
+      return { prediction: result.soil_texture || "Not detected", recommended_crop: result.recommended_crop || "No recommendation", companions: result.companions || [], avoid: result.avoid || [] };
     } catch (err) {
       console.error("YOLO API Error:", err);
-      return { soil_texture: null, recommended_crop: null, companions: [], avoid: [] };
+      return { prediction: null, recommended_crop: null, companions: [], avoid: [] };
     }
   };
 
@@ -182,7 +196,7 @@ const MainScreen = () => {
   const handleFarmulate = async () => {
   setLoading(true);
   try {
-    // ✅ Validate fields
+    // 1️⃣ Validate fields
     const missing = [];
     if (!nitrogen) missing.push("Nitrogen");
     if (!phosphorus) missing.push("Phosphorus");
@@ -191,7 +205,7 @@ const MainScreen = () => {
 
     let finalPotName = selectedPot === "new" ? newPotName.trim() : selectedPot;
     if (!finalPotName || finalPotName === "default") {
-      Alert.alert("Missing Pot/Plot","Please select or enter a valid pot/plot name.");
+      Alert.alert("Missing Pot/Plot", "Please select or enter a valid pot/plot name.");
       setLoading(false);
       return;
     }
@@ -205,72 +219,77 @@ const MainScreen = () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user?.id) throw new Error("User not logged in");
 
-    // ✅ Ensure pot exists in `pots`
+    // 2️⃣ Ensure pot exists
     if (selectedPot === "new" && !existingPots.includes(finalPotName)) {
       await savePot(finalPotName);
     }
 
-    // ✅ Upload image
+    // 3️⃣ Upload image
     let imageUrl = null;
     if (soilImage) imageUrl = await uploadImage(soilImage, user.id);
 
-    // ✅ Fetch YOLO/XGBoost result
     const image_name = soilImage ? soilImage.split("/").pop() : `soil_${Date.now()}.jpg`;
+
+    // 4️⃣ Fetch YOLO/XGBoost result
     const yoloResult = await fetchYoloResult(imageUrl, image_name, finalPotName);
 
-    const results = {
-      potName: finalPotName,
-      soilTexture: yoloResult.soil_texture,
-      recommendedCrop: yoloResult.recommended_crop,
-      nitrogen, phosphorus, potassium, phLevel,
-      soilImage: imageUrl,
-      companions: yoloResult.companions,
-      avoid: yoloResult.avoid,
-    };
-
-    // ✅ Insert **only once** into `soil_results`
-    const { data: insertedData, error: reportError } = await supabase
+    // 5️⃣ Insert into Supabase soil_results
+    const { error: insertError } = await supabase
       .from("soil_results")
       .insert([{
         user_id: user.id,
         pot_name: finalPotName,
-        image_name,
-        image_url: imageUrl,
-        prediction: results.soilTexture,
-        recommended_crop: results.recommendedCrop,
         n: Number(nitrogen),
         p: Number(phosphorus),
         k: Number(potassium),
         ph_level: Number(phLevel),
-        companions: results.companions,
-        avoids: results.avoid,
-        created_at: new Date().toISOString(),
-      }])
-      .select()
-      .single();
+        image_url: imageUrl,
+        image_name: image_name,
+        prediction: yoloResult.prediction,
+        recommended_crop: yoloResult.recommended_crop,
+        companions: yoloResult.companions,
+        avoids: yoloResult.avoid,
+      }]);
 
-    if (reportError) throw reportError;
+    if (insertError) throw insertError;
 
-    // ✅ Update context
-    setMappedSoilData({
-      potName: insertedData.pot_name,
-      soilTexture: insertedData.prediction,
-      recommendedCrop: insertedData.recommended_crop,
-      nitrogen: insertedData.n,
-      phosphorus: insertedData.p,
-      potassium: insertedData.k,
-      phLevel: insertedData.ph_level,
-      soilImage: insertedData.image_url,
-      companions: insertedData.companions,
-      avoid: insertedData.avoids,
-      generatedAt: insertedData.created_at,
-    });
+    // 6️⃣ Fetch latest inserted result for user
+    const { data: latestResult, error: fetchError } = await supabase
+      .from("soil_results")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(1);
 
-    // ✅ Navigate
+    if (fetchError) throw fetchError;
+
+    if (latestResult?.length) {
+      const row = latestResult[0];
+      setMappedSoilData({
+        potName: row.pot_name,
+        soilTexture: row.prediction,
+        recommendedCrop: row.recommended_crop,
+        nitrogen: row.n,
+        phosphorus: row.p,
+        potassium: row.k,
+        phLevel: row.ph_level,
+        soilImage: row.image_url,
+        companions: row.companions,
+        avoid: row.avoids,
+        generatedAt: row.created_at,
+      });
+    }
+
     router.push("/report");
 
-    // ✅ Reset form
-    setNitrogen(""); setPhosphorus(""); setPotassium(""); setPhLevel(""); setNewPotName(""); setSoilImage(null); setSelectedPot("default");
+    // 7️⃣ Reset form
+    setNitrogen("");
+    setPhosphorus("");
+    setPotassium("");
+    setPhLevel("");
+    setNewPotName("");
+    setSoilImage(null);
+    setSelectedPot("default");
 
   } catch (err) {
     console.error("Farmulate Error:", err);
@@ -280,33 +299,42 @@ const MainScreen = () => {
   }
 };
 
-
-  // 🧱 UI
   const handleDeletePot = async () => {
-    Alert.alert(
-      "Delete Pot/Plot",
-      `Are you sure you want to delete "${selectedPot}"?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              const { data: { user } } = await supabase.auth.getUser();
-              const { error } = await supabase.from("pots").delete().eq("user_id", user.id).eq("name", selectedPot);
-              if (error) throw error;
-              setExistingPots(existingPots.filter(p => p !== selectedPot));
-              setSelectedPot("default");
-            } catch (err) {
-              console.error("Error deleting pot:", err);
-              Alert.alert("Error", "Could not delete pot.");
-            }
-          },
-        },
-      ]
-    );
-  };
+  if (!selectedPot || selectedPot === "default") return;
+
+  Alert.alert(
+    "Delete Pot/Plot",
+    `Are you sure you want to delete "${selectedPot}"?`,
+    [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user?.id) throw new Error("User not logged in");
+
+            const { error } = await supabase
+              .from("pots")
+              .delete()
+              .eq("user_id", user.id)
+              .eq("name", selectedPot);
+
+            if (error) throw error;
+
+            // Remove from state immediately
+            setExistingPots(prev => prev.filter(p => p !== selectedPot));
+            setSelectedPot("default");
+          } catch (err) {
+            console.error("Error deleting pot:", err);
+            Alert.alert("Error", "Could not delete pot.");
+          }
+        }
+      }
+    ]
+  );
+};
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
@@ -351,13 +379,35 @@ const MainScreen = () => {
           )}
 
           {/* Nutrient Inputs */}
-          {["Nitrogen", "Phosphorus", "Potassium", "pH Level"].map((label,i)=>(
-            <View key={i}>
-              <Text style={styles.label}>{label}</Text>
-              <TextInput placeholder={label} placeholderTextColor="#aaa" style={styles.input} value={label==="Nitrogen"?nitrogen:label==="Phosphorus"?phosphorus:label==="Potassium"?potassium:phLevel} onChangeText={label==="Nitrogen"?setNitrogen:label==="Phosphorus"?setPhosphorus:label==="Potassium"?setPotassium:setPhLevel} />
-            </View>
-          ))}
+          {["Nitrogen", "Phosphorus", "Potassium", "pH Level"].map((label, i) => {
+              const value = label === "Nitrogen" ? nitrogen
+                          : label === "Phosphorus" ? phosphorus
+                          : label === "Potassium" ? potassium
+                          : phLevel;
 
+              const setValue = label === "Nitrogen" ? setNitrogen
+                            : label === "Phosphorus" ? setPhosphorus
+                            : label === "Potassium" ? setPotassium
+                            : setPhLevel;
+
+              return (
+                <View key={i}>
+                  <Text style={styles.label}>{label}</Text>
+                  <TextInput
+                    placeholder={label}
+                    placeholderTextColor="#aaa"
+                    style={styles.input}
+                    value={value}
+                    keyboardType="numeric"
+                    onChangeText={(text) => {
+                      // Remove any non-numeric characters (allow dot for decimal)
+                      const filtered = text.replace(/[^0-9.]/g, "");
+                      setValue(filtered);
+                    }}
+                  />
+                </View>
+              );
+            })}
           {/* Image Upload */}
           <TouchableOpacity style={styles.uploadBtn} onPress={handleImageSelection}>
             <Text style={styles.uploadText}>{soilImage?"✅ Change Soil Image":"📷 Add Soil Image"}</Text>

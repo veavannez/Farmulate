@@ -3,3 +3,12 @@ node_modules/
 .env
 .DS_Store
 dist/
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+.env
+.env.local
+.venv/
