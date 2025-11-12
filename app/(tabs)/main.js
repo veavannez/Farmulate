@@ -178,7 +178,7 @@ useEffect(() => {
     try {
       if (!imageUrl) return { prediction: null, recommended_crop: null, companions: [], avoid: [] };
       const token = await getValidToken();
-      const response = await fetch("http://192.168.254.134:8000/predict", {
+      const response = await fetch("https://soil-backend-cfwo.onrender.com/predict", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ imageUrl, image_name, N: Number(nitrogen), P: Number(phosphorus), K: Number(potassium), ph: Number(phLevel), pot_name: potName }),
