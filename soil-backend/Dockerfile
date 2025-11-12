@@ -7,6 +7,7 @@ WORKDIR /app
 # System deps for pillow, ffmpeg, etc.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    libgomp1 \
     libglib2.0-0 \
     libsm6 \
     libxrender1 \
