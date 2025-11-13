@@ -104,7 +104,7 @@ const SoilNutrientsCard = () => {
   return (
     <View style={[styles.panel, { width: SCREEN_WIDTH - 40 }]}>
       <View style={styles.lastChecked}>
-        <Text style={styles.lastCheckedText}>🪴 Pot/Plot: {data.potName || data.pot_name || "Unnamed Pot"}</Text>
+        <Text style={styles.lastCheckedText}>🪴 {data.potName || data.pot_name || "Unnamed Pot"}</Text>
         <Text style={styles.lastCheckedText}>
           ⏱ Last Checked: {data.generatedAt || data.created_at ? new Date(data.generatedAt || data.created_at).toLocaleString() : "N/A"}
         </Text>
@@ -171,7 +171,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#1b5e20",
     borderRadius: 12,
   },
-  phCategoryText: { marginTop: 8, color: "rgba(255,255,255,0.9)", fontWeight: "700", fontSize: 12 },
+  phCategoryText: { marginTop: 0, color: "rgba(255,255,255,0.9)", fontWeight: "700", fontSize: 12 },
   emptyContainer: { height: 120, justifyContent: "center", alignItems: "center" },
   emptyText: { fontSize: 18, fontWeight: "600", color: "#555" },
   refreshButton: {

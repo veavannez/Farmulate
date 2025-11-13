@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { useSoil } from "../context/soilContext";
 import { supabase } from "../lib/supabase";
+import { sanitizeSoilTexture } from "../utils/helpers";
 
 const COLORS = {
   high: "#4caf50",      // green
@@ -87,7 +88,7 @@ const ReportScreen = () => {
         } else {
           setSoilData({
             potName: report.pot_name || report.potName || "Unnamed Pot/Plot",
-            soilTexture: report.prediction || report.soilTexture || "Not detected",
+            soilTexture: sanitizeSoilTexture(report.prediction || report.soilTexture || "Not detected"),
             recommendedCrop: report.recommended_crop || report.recommendedCrop || "No recommendation",
             nitrogen: report.n ?? report.nitrogen,
             phosphorus: report.p ?? report.phosphorus,

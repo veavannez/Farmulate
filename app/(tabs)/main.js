@@ -123,29 +123,53 @@ useEffect(() => {
   // ☁️ Upload Image
   const uploadImage = async (uri, userId) => {
     try {
-      if (!uri) return null;
-      const token = await getValidToken();
-      const fileUri = uri.startsWith("file://") ? uri : `file://${uri}`;
-      const ext = fileUri.split(".").pop().toLowerCase();
-      if (!["jpg", "jpeg", "png"].includes(ext)) {
-        Alert.alert("Unsupported file", "Please select a JPG, JPEG, or PNG image.");
+      if (!uri) {
+        console.error("❌ No URI provided");
         return null;
       }
 
-      const cacheFile = `${FileSystem.cacheDirectory}${Date.now()}.${ext}`;
-      await FileSystem.copyAsync({ from: fileUri, to: cacheFile });
-      const base64 = await FileSystem.readAsStringAsync(cacheFile, { encoding: FileSystem.EncodingType.Base64 });
-      const buffer = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-      const fileName = `${userId}/${Date.now()}.${ext}`;
-      const { error } = await supabase.storage.from("soil-images").upload(fileName, buffer, { contentType: `image/${ext}`, upsert: true });
-      await FileSystem.deleteAsync(cacheFile, { idempotent: true });
-      if (error) throw error;
+      console.log("📤 Starting upload...", { uri, userId });
+      
+      // Read file as base64
+      const base64 = await FileSystem.readAsStringAsync(uri, { 
+        encoding: FileSystem.EncodingType.Base64 
+      });
+      
+      console.log("✅ Read file as base64, length:", base64.length);
+      
+      // Convert to binary
+      const arrayBuffer = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+      console.log("✅ Converted to ArrayBuffer, size:", arrayBuffer.length);
+      
+      const fileName = `${userId}/${Date.now()}.jpg`;
+      
+      console.log("📤 Uploading to Supabase:", fileName);
+      
+      const { data, error } = await supabase.storage
+        .from("soil-images")
+        .upload(fileName, arrayBuffer, { 
+          contentType: "image/jpeg",
+          upsert: true 
+        });
 
-      const { data: publicUrl } = supabase.storage.from("soil-images").getPublicUrl(fileName);
-      return publicUrl.publicUrl;
+      if (error) {
+        console.error("❌ Supabase upload error:", error);
+        throw error;
+      }
+
+      console.log("✅ Upload successful:", data);
+
+      const { data: publicUrlData } = supabase.storage
+        .from("soil-images")
+        .getPublicUrl(fileName);
+
+      console.log("✅ Public URL:", publicUrlData.publicUrl);
+      
+      return publicUrlData.publicUrl;
+      
     } catch (err) {
-      console.error("Image upload failed:", err);
-      Alert.alert("Upload Error", "Could not upload the soil image.");
+      console.error("❌ Image upload failed:", err);
+      Alert.alert("Upload Error", `Could not upload the soil image: ${err.message || err}`);
       return null;
     }
   };
@@ -177,18 +201,54 @@ useEffect(() => {
   const fetchYoloResult = async (imageUrl, image_name, potName) => {
     try {
       if (!imageUrl) return { prediction: null, recommended_crop: null, companions: [], avoid: [] };
+      
+      console.log("🔄 Calling Render backend (may take 60s on cold start)...");
       const token = await getValidToken();
+      
+      // Add timeout for Render cold starts (90 seconds)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 90000);
+      
       const response = await fetch("https://soil-backend-cfwo.onrender.com/predict", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ imageUrl, image_name, N: Number(nitrogen), P: Number(phosphorus), K: Number(potassium), ph: Number(phLevel), pot_name: potName }),
+        signal: controller.signal,
       });
-      if (!response.ok) throw new Error(`YOLO API request failed: ${response.statusText}`);
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("API Error Response:", errorText);
+        throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+      }
+      
       const result = await response.json();
-      return { prediction: result.soil_texture || "Not detected", recommended_crop: result.recommended_crop || "No recommendation", companions: result.companions || [], avoid: result.avoid || [] };
+      console.log("✅ Backend response:", result);
+      
+      return { 
+        prediction: result.soil_texture || "Not detected", 
+        recommended_crop: result.recommended_crop || "No recommendation", 
+        companions: result.companions || [], 
+        avoid: result.avoid || [] 
+      };
     } catch (err) {
       console.error("YOLO API Error:", err);
-      return { prediction: null, recommended_crop: null, companions: [], avoid: [] };
+      
+      if (err.name === 'AbortError') {
+        Alert.alert(
+          "Timeout", 
+          "The server took too long to respond. Render's free tier may be starting up. Please try again in a minute."
+        );
+      } else {
+        Alert.alert(
+          "Prediction Error",
+          `Failed to get soil prediction: ${err.message || 'Unknown error'}\n\nPlease check your internet connection and try again.`
+        );
+      }
+      
+      throw err; // Re-throw to stop the farmulate process
     }
   };
 
@@ -202,6 +262,7 @@ useEffect(() => {
     if (!phosphorus) missing.push("Phosphorus");
     if (!potassium) missing.push("Potassium");
     if (!phLevel) missing.push("pH Level");
+    if (!soilImage) missing.push("Soil Image");
 
     let finalPotName = selectedPot === "new" ? newPotName.trim() : selectedPot;
     if (!finalPotName || finalPotName === "default") {
@@ -219,41 +280,58 @@ useEffect(() => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user?.id) throw new Error("User not logged in");
 
-    // 2️⃣ Ensure pot exists
+    // 2️⃣ Ensure pot exists in pots table (basic entry)
     if (selectedPot === "new" && !existingPots.includes(finalPotName)) {
       await savePot(finalPotName);
     }
 
-    // 3️⃣ Upload image
-    let imageUrl = null;
-    if (soilImage) imageUrl = await uploadImage(soilImage, user.id);
+    // 3️⃣ Upload image (REQUIRED)
+    const imageUrl = await uploadImage(soilImage, user.id);
+    if (!imageUrl) {
+      Alert.alert("Error", "Failed to upload image. Please try again.");
+      setLoading(false);
+      return;
+    }
 
-    const image_name = soilImage ? soilImage.split("/").pop() : `soil_${Date.now()}.jpg`;
+    const image_name = soilImage.split("/").pop();
 
-    // 4️⃣ Fetch YOLO/XGBoost result
+    // 4️⃣ Fetch YOLO/XGBoost result (backend inserts into soil_results)
+    console.log("📤 Sending to backend:", { imageUrl, nitrogen, phosphorus, potassium, phLevel, finalPotName });
+    
     const yoloResult = await fetchYoloResult(imageUrl, image_name, finalPotName);
 
-    // 5️⃣ Insert into Supabase soil_results
-    const { error: insertError } = await supabase
-      .from("soil_results")
-      .insert([{
-        user_id: user.id,
-        pot_name: finalPotName,
+    if (!yoloResult.prediction) {
+      Alert.alert("Error", "Failed to get soil prediction. Please try again.");
+      setLoading(false);
+      return;
+    }
+    
+    console.log("✅ Got prediction:", yoloResult);
+
+    // 5️⃣ Update pots table with latest soil data
+    const { error: updatePotError } = await supabase
+      .from("pots")
+      .update({
         n: Number(nitrogen),
         p: Number(phosphorus),
         k: Number(potassium),
         ph_level: Number(phLevel),
-        image_url: imageUrl,
-        image_name: image_name,
-        prediction: yoloResult.prediction,
-        recommended_crop: yoloResult.recommended_crop,
-        companions: yoloResult.companions,
-        avoids: yoloResult.avoid,
-      }]);
+        soil_image_url: imageUrl,
+        soil_texture: yoloResult.prediction || "Unknown",
+        recommended_crop: yoloResult.recommended_crop || "No recommendation",
+        companions: Array.isArray(yoloResult.companions) ? yoloResult.companions : [],
+        avoid: Array.isArray(yoloResult.avoid) ? yoloResult.avoid : [],
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", user.id)
+      .eq("name", finalPotName);
 
-    if (insertError) throw insertError;
+    if (updatePotError) {
+      console.error("Update Pot Error:", updatePotError);
+      // Don't throw - backend already saved to soil_results
+    }
 
-    // 6️⃣ Fetch latest inserted result for user
+    // 6️⃣ Fetch latest inserted result from backend (backend already inserted it)
     const { data: latestResult, error: fetchError } = await supabase
       .from("soil_results")
       .select("*")

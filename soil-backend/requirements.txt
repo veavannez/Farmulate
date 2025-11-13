@@ -11,4 +11,3 @@ python-dotenv
 supabase
 python-jose
 requests
-xgboost

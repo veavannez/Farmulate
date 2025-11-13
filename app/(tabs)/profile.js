@@ -1,17 +1,18 @@
-import React, { useEffect, useState } from "react";
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import { useEffect, useState } from "react";
 import {
-  View,
+  ActivityIndicator,
+  Alert,
+  ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
-  ScrollView,
-  Alert,
-  ActivityIndicator,
+  View,
 } from "react-native";
-import { useRouter } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
+import { validateStrongPassword } from "../../utils/helpers";
 
 const ProfileScreen = () => {
   const router = useRouter();
@@ -122,11 +123,10 @@ const ProfileScreen = () => {
       Alert.alert("Error", "Passwords do not match!");
       return;
     }
-    if (!validatePassword(newPassword)) {
-      Alert.alert(
-        "Error",
-        "Password must be at least 8 characters long, include a number, and a special symbol."
-      );
+    
+    const passwordValidation = validateStrongPassword(newPassword);
+    if (!passwordValidation.isValid) {
+      Alert.alert("Weak Password", passwordValidation.message);
       return;
     }
 
@@ -153,6 +153,8 @@ const ProfileScreen = () => {
       Alert.alert("Error", "Failed to log out.");
     }
   };
+
+  // Removed dev-only onboarding reset button and handler
 
   if (loading) {
     return (
@@ -208,7 +210,7 @@ const ProfileScreen = () => {
         {isEditing && (
           <>
             <TouchableOpacity style={styles.saveButton} onPress={handleSaveProfile}>
-              <Text style={styles.saveText}>💾 Save Changes</Text>
+              <Text style={styles.saveText}>Save Changes</Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.cancelButton} onPress={() => setIsEditing(false)}>
@@ -267,7 +269,7 @@ const ProfileScreen = () => {
           </View>
 
           <TouchableOpacity style={styles.saveButton} onPress={handleSavePassword}>
-            <Text style={styles.saveText}>✅ Save Password</Text>
+            <Text style={styles.saveText}>Save Password</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -285,6 +287,8 @@ const ProfileScreen = () => {
           <Text style={styles.secondaryButtonText}>Change Password</Text>
         </TouchableOpacity>
       )}
+
+      {/* Dev-only View Onboarding button removed */}
 
       <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
         <Text style={styles.logoutText}>Log Out</Text>

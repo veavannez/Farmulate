@@ -1,6 +1,7 @@
 // context/SoilContext.js
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createContext, useContext, useEffect, useState } from "react";
+import { sanitizeSoilTexture } from "../utils/helpers";
 
 const SoilContext = createContext();
 
@@ -40,7 +41,7 @@ export const SoilProvider = ({ children }) => {
   const mappedSoilData = {
     id: data.id || Date.now().toString(),
     // Accept either snake_case (DB) or camelCase (app) field names
-    soilTexture: data.prediction || data.soilTexture || "Unknown",
+    soilTexture: sanitizeSoilTexture((data.prediction || data.soilTexture || "Not detected")),
     recommendedCrop: data.recommended_crop || data.recommendedCrop || "No recommendation",
     companions: data.companions || data.companions || [],
     avoids: data.avoids || data.avoid || [],

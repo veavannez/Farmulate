@@ -1,20 +1,21 @@
-import React, { useState, useCallback } from "react";
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  Image,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
-  Alert,
-  ActivityIndicator,
-} from "react-native";
-import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import { useCallback, useState } from "react";
+import {
+    ActivityIndicator,
+    Alert,
+    Image,
+    KeyboardAvoidingView,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+} from "react-native";
 import { supabase } from "../lib/supabase";
+import { validateStrongPassword } from "../utils/helpers";
 
 const SignupScreen = () => {
   const router = useRouter();
@@ -33,8 +34,6 @@ const SignupScreen = () => {
   const isEmailValid = (email) =>
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim().toLowerCase());
 
-  const isPasswordStrong = (password) => password.length >= 6;
-
   const handleSignUp = useCallback(async () => {
     if (!username || !firstName || !lastName || !email || !password || !confirmPassword) {
       Alert.alert("Missing fields", "Please fill in all fields.");
@@ -46,8 +45,9 @@ const SignupScreen = () => {
       return;
     }
 
-    if (!isPasswordStrong(password)) {
-      Alert.alert("Weak Password", "Password should be at least 6 characters long.");
+    const passwordValidation = validateStrongPassword(password);
+    if (!passwordValidation.isValid) {
+      Alert.alert("Weak Password", passwordValidation.message);
       return;
     }
 
