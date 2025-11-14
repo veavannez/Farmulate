@@ -3,15 +3,15 @@ import { useRouter } from "expo-router";
 import LottieView from "lottie-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Alert,
-  Dimensions,
-  FlatList,
-  Image,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View
+    Alert,
+    Dimensions,
+    FlatList,
+    Image,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
 } from "react-native";
 import { supabase } from "../../lib/supabase";
 
@@ -152,6 +152,9 @@ export default function HistoryScreen() {
 
               setHistory((prev) => prev.filter((h) => !ids.includes(h.id)));
               setSelectedPot("all");
+              setSelectMode(false);
+              setMenuOpen(false);
+              setSelectedItems([]);
               Alert.alert("Success", `${ids.length} report(s) deleted!`);
             } catch (err) {
               console.error("Error deleting reports:", err.message);
@@ -194,6 +197,7 @@ export default function HistoryScreen() {
               setHistory((prev) => prev.filter((h) => !selectedItems.includes(h.id)));
               setSelectedItems([]);
               setSelectMode(false);
+              setMenuOpen(false);
               Alert.alert("Success", `${selectedItems.length} report(s) deleted!`);
             } catch (err) {
               console.error("Error deleting reports:", err.message);
@@ -389,14 +393,12 @@ const styles = StyleSheet.create({
   },
   filterRow: {
     height: 48,
-    alignItems: "center",
   },
   potScrollContainer: {
     flex: 1,
   },
   potScroll: { 
     paddingVertical: 4,
-    alignItems: "center",
   },
   potChip: { 
     backgroundColor: "#e0e0e0", 

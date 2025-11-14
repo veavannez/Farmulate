@@ -14,8 +14,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy app
-COPY app/ /app/
+# Copy requirements first (better caching)
+COPY requirements.txt /app/requirements.txt
 
 # Upgrade pip
 RUN pip install --upgrade pip
@@ -23,8 +23,12 @@ RUN pip install --upgrade pip
 # Install CPU torch (CPU-only build)
 RUN pip install torch torchvision --extra-index-url https://download.pytorch.org/whl/cpu
 
-# Install remaining Python deps from correct path
-RUN pip install -r /app/model/requirements.txt
+# Copy and install requirements
+COPY requirements.txt /app/requirements.txt
+RUN pip install -r /app/requirements.txt
+
+# Copy app code
+COPY app/ /app/
 
 # Expose port
 EXPOSE 8000

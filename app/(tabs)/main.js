@@ -393,17 +393,41 @@ useEffect(() => {
             const { data: { user } } = await supabase.auth.getUser();
             if (!user?.id) throw new Error("User not logged in");
 
-            const { error } = await supabase
+             // First check if there are any reports associated with this pot
+             const { data: reports, error: checkError } = await supabase
+               .from("soil_results")
+               .select("id")
+               .eq("user_id", user.id)
+               .eq("pot_name", selectedPot);
+
+             if (checkError) throw checkError;
+
+             if (reports && reports.length > 0) {
+               Alert.alert(
+                 "Cannot Delete",
+                 `This pot has ${reports.length} soil report(s) associated with it. Please delete the reports from the History tab first.`,
+                 [{ text: "OK" }]
+               );
+               return;
+             }
+
+              // Store pot name before resetting
+              const potToDelete = selectedPot;
+
+             // Now delete the pot
+             const { error } = await supabase
               .from("pots")
               .delete()
               .eq("user_id", user.id)
-              .eq("name", selectedPot);
+               .eq("name", potToDelete);
 
             if (error) throw error;
 
             // Remove from state immediately
-            setExistingPots(prev => prev.filter(p => p !== selectedPot));
+             setExistingPots(prev => prev.filter(p => p !== potToDelete));
             setSelectedPot("default");
+           
+              Alert.alert("Success", `Pot "${potToDelete}" has been deleted.`);
           } catch (err) {
             console.error("Error deleting pot:", err);
             Alert.alert("Error", "Could not delete pot.");
@@ -416,7 +440,7 @@ useEffect(() => {
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-      <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false} scrollEnabled={!loading}>
         {/* Decor */}
         <View style={styles.decorContainer}>
           <Image source={require("../../assets/leaves-decor.png")} style={styles.decorLeft} resizeMode="contain" />
@@ -457,22 +481,27 @@ useEffect(() => {
           )}
 
           {/* Nutrient Inputs */}
-          {["Nitrogen", "Phosphorus", "Potassium", "pH Level"].map((label, i) => {
-              const value = label === "Nitrogen" ? nitrogen
-                          : label === "Phosphorus" ? phosphorus
-                          : label === "Potassium" ? potassium
+          {[
+            { label: "Nitrogen (mg/kg)", placeholder: "Nitrogen" },
+            { label: "Phosphorus (mg/kg)", placeholder: "Phosphorus" },
+            { label: "Potassium (mg/kg)", placeholder: "Potassium" },
+            { label: "pH Level", placeholder: "pH Level" }
+          ].map((item, i) => {
+              const value = item.label.includes("Nitrogen") ? nitrogen
+                          : item.label.includes("Phosphorus") ? phosphorus
+                          : item.label.includes("Potassium") ? potassium
                           : phLevel;
 
-              const setValue = label === "Nitrogen" ? setNitrogen
-                            : label === "Phosphorus" ? setPhosphorus
-                            : label === "Potassium" ? setPotassium
+              const setValue = item.label.includes("Nitrogen") ? setNitrogen
+                            : item.label.includes("Phosphorus") ? setPhosphorus
+                            : item.label.includes("Potassium") ? setPotassium
                             : setPhLevel;
 
               return (
                 <View key={i}>
-                  <Text style={styles.label}>{label}</Text>
+                  <Text style={styles.label}>{item.label}</Text>
                   <TextInput
-                    placeholder={label}
+                    placeholder={item.placeholder}
                     placeholderTextColor="#aaa"
                     style={styles.input}
                     value={value}
@@ -507,7 +536,7 @@ useEffect(() => {
         </TouchableOpacity>
 
         {loading && (
-          <View style={styles.loadingOverlay}>
+          <View pointerEvents="auto" style={styles.loadingOverlay}>
             <LottieView source={require("../../assets/animations/spinner.json")} autoPlay loop style={{ width: 80, height: 80 }} />
             <Text style={styles.loadingText}>Processing...</Text>
           </View>

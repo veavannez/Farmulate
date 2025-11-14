@@ -84,10 +84,10 @@ const SoilNutrientsCard = () => {
   const phCategory = getPhCategory(Number(phValue));
 
   const nutrients = [
-    { label: "Nitrogen", value: nitrogenValue, color: "#388e3c", icon: <Ionicons name="leaf" size={28} color="#fff" /> },
-    { label: "Phosphorus", value: phosphorusValue, color: "#43a047", icon: <MaterialCommunityIcons name="beaker-outline" size={28} color="#fff" /> },
-    { label: "Potassium", value: potassiumValue, color: "#66bb6a", icon: <MaterialCommunityIcons name="flask" size={28} color="#fff" /> },
-    { label: "pH Level", value: phValue, color: phCategory.color || "#4caf50", icon: <Ionicons name="water" size={28} color="#fff" /> },
+    { label: "Nitrogen", unit: "mg/kg", value: nitrogenValue, color: "#388e3c", icon: <Ionicons name="leaf" size={28} color="#fff" /> },
+    { label: "Phosphorus", unit: "mg/kg", value: phosphorusValue, color: "#43a047", icon: <MaterialCommunityIcons name="beaker-outline" size={28} color="#fff" /> },
+    { label: "Potassium", unit: "mg/kg", value: potassiumValue, color: "#66bb6a", icon: <MaterialCommunityIcons name="flask" size={28} color="#fff" /> },
+    { label: "pH Level", unit: null, value: phValue, color: phCategory.color || "#4caf50", icon: <Ionicons name="water" size={28} color="#fff" /> },
   ];
 
   const renderCard = (n, idx) => (
@@ -95,6 +95,7 @@ const SoilNutrientsCard = () => {
       {n.icon}
       <Text style={styles.value}>{n.value}</Text>
       <Text style={styles.label}>{n.label}</Text>
+      {n.unit && <Text style={styles.unitText}>{n.unit}</Text>}
       {n.label === "pH Level" && (
         <Text style={styles.phCategoryText}>{getPhCategory(Number(n.value)).label}</Text>
       )}
@@ -149,6 +150,7 @@ const styles = StyleSheet.create({
   },
   value: { fontSize: 36, fontWeight: "900", color: "#fff", marginTop: 6 },
   label: { fontSize: 16, fontWeight: "700", color: "#fff", textAlign: "center", marginTop: 2 },
+  unitText: { fontSize: 12, fontWeight: "600", color: "rgba(255,255,255,0.85)", textAlign: "center", marginTop: 2 },
   lastChecked: {
     marginBottom: 16,
     paddingVertical: 12,

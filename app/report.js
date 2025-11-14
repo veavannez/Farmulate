@@ -1,14 +1,18 @@
 // app/report.js
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import * as Print from 'expo-print';
 import { useLocalSearchParams, useRouter } from "expo-router";
+import * as Sharing from 'expo-sharing';
 import { useEffect, useState } from "react";
 import {
-  Image,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    Image,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { useSoil } from "../context/soilContext";
 import { supabase } from "../lib/supabase";
@@ -37,6 +41,7 @@ const ReportScreen = () => {
   const { soilData: mappedSoilData } = useSoil();
   const [soilData, setSoilData] = useState(mappedSoilData || null);
   const [loaded, setLoaded] = useState(false);
+  const [printing, setPrinting] = useState(false);
   const router = useRouter();
   const { reportId } = useLocalSearchParams();
 
@@ -51,6 +56,367 @@ const ReportScreen = () => {
       second: "2-digit",
       hour12: false,
     }).format(new Date(dateString));
+  };
+
+  const generatePDF = async () => {
+    if (!soilData) return;
+    
+    setPrinting(true);
+    try {
+      const phCategory = getPhCategory(parseFloat(soilData.phLevel));
+      
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            @page { 
+              size: A4; 
+              margin: 0; 
+            }
+            body { 
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+              padding: 24px 32px;
+              color: #1a1a1a;
+              background: #fff;
+              line-height: 1.5;
+            }
+            .header { 
+              text-align: center; 
+              margin-bottom: 16px;
+              border-bottom: 3px solid #2e7d32;
+              padding-bottom: 14px;
+            }
+            .logo-text {
+              font-size: 24px;
+              font-weight: bold;
+              color: #2e7d32;
+              margin-bottom: 4px;
+              letter-spacing: 1px;
+            }
+            .subtitle { 
+              color: #555; 
+              font-size: 13px;
+              font-style: italic;
+              font-weight: 500;
+            }
+            .meta-bar {
+              background: #f8f8f8;
+              border: 1px solid #ddd;
+              padding: 12px 18px;
+              border-radius: 4px;
+              margin-bottom: 18px;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            }
+            .meta-label {
+              font-size: 10px;
+              color: #666;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              margin-bottom: 2px;
+            }
+            .meta-value {
+              font-size: 13px;
+              font-weight: 600;
+              color: #1a1a1a;
+            }
+            .content-grid {
+              display: grid;
+              grid-template-columns: 350px 1fr;
+              gap: 18px;
+            }
+            .left-column {
+              display: flex;
+              flex-direction: column;
+              gap: 14px;
+            }
+            .panel {
+              background: #fff;
+              border: 1px solid #ddd;
+              border-radius: 4px;
+              padding: 14px;
+            }
+            .section-header {
+              font-size: 12px;
+              font-weight: 700;
+              color: #2e7d32;
+              margin-bottom: 10px;
+              text-transform: uppercase;
+              letter-spacing: 0.8px;
+              border-bottom: 2px solid #2e7d32;
+              padding-bottom: 6px;
+            }
+            .soil-image {
+              width: 100%;
+              height: 180px;
+              object-fit: cover;
+              border-radius: 3px;
+              border: 1px solid #ccc;
+              margin-bottom: 10px;
+            }
+            .info-row {
+              display: flex;
+              justify-content: space-between;
+              padding: 8px 0;
+              border-bottom: 1px solid #eee;
+            }
+            .info-row:last-child {
+              border-bottom: none;
+            }
+            .info-label {
+              font-size: 11px;
+              color: #666;
+              font-weight: 600;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .info-value {
+              font-size: 12px;
+              color: #1a1a1a;
+              font-weight: 600;
+            }
+            .nutrient-table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 8px;
+            }
+            .nutrient-table th {
+              background: #f5f5f5;
+              padding: 8px;
+              text-align: left;
+              font-size: 10px;
+              font-weight: 700;
+              color: #555;
+              text-transform: uppercase;
+              border: 1px solid #ddd;
+              letter-spacing: 0.5px;
+            }
+            .nutrient-table td {
+              padding: 10px 8px;
+              font-size: 12px;
+              border: 1px solid #ddd;
+              color: #1a1a1a;
+            }
+            .nutrient-name {
+              font-weight: 600;
+            }
+            .nutrient-value {
+              text-align: center;
+              font-weight: 700;
+              color: #2e7d32;
+            }
+            .nutrient-unit {
+              text-align: center;
+              font-size: 10px;
+              color: #666;
+            }
+            .recommendation-box {
+              background: #e8f5e9;
+              border-left: 4px solid #2e7d32;
+              padding: 12px;
+              margin-top: 10px;
+            }
+            .rec-label {
+              font-size: 10px;
+              color: #555;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              margin-bottom: 4px;
+            }
+            .rec-value {
+              font-size: 15px;
+              font-weight: 700;
+              color: #2e7d32;
+            }
+            .companion-grid {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 14px;
+              margin-top: 10px;
+            }
+            .companion-column h4 {
+              font-size: 11px;
+              margin-bottom: 8px;
+              color: #1a1a1a;
+              font-weight: 700;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .companion-list {
+              list-style: none;
+            }
+            .companion-list li {
+              padding: 6px 10px;
+              margin-bottom: 4px;
+              font-size: 11px;
+              border-left: 3px solid;
+              background: #f9f9f9;
+              line-height: 1.4;
+            }
+            .good-companion {
+              border-color: #2e7d32;
+              color: #1b5e20;
+            }
+            .bad-companion {
+              border-color: #c62828;
+              color: #b71c1c;
+            }
+            .footer {
+              margin-top: 16px;
+              padding-top: 10px;
+              border-top: 2px solid #ddd;
+              text-align: center;
+              color: #666;
+              font-size: 9px;
+              line-height: 1.4;
+            }
+            .report-id {
+              font-size: 9px;
+              color: #999;
+              text-align: center;
+              margin-top: 4px;
+              font-family: 'Courier New', monospace;
+              letter-spacing: 1px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="logo-text">🌱 FARMULATE</div>
+            <div class="subtitle">Soil Analysis Report</div>
+          </div>
+
+          <div class="meta-bar">
+            <div>
+              <div class="meta-label">Sample Location</div>
+              <div class="meta-value">${soilData.potName || "Unnamed Pot/Plot"}</div>
+            </div>
+            <div style="text-align: right;">
+              <div class="meta-label">Analysis Date</div>
+              <div class="meta-value">${formatDate(soilData.generatedAt)}</div>
+            </div>
+          </div>
+
+          <div class="content-grid">
+            <!-- Left Column: Soil Analysis -->
+            <div class="left-column">
+              <div class="panel">
+                <div class="section-header">Soil Sample Image</div>
+                ${soilData.soilImage ? `<img src="${soilData.soilImage}" class="soil-image" alt="Soil Sample" />` : `<div style="height: 180px; background: #f0f0f0; border-radius: 3px; display: flex; align-items: center; justify-content: center; color: #999; font-size: 11px; border: 1px dashed #ccc;">No Image Available</div>`}
+              </div>
+
+              <div class="panel">
+                <div class="section-header">Soil Texture</div>
+                <div class="info-row">
+                  <div class="info-label">Classification</div>
+                  <div class="info-value">${soilData.soilTexture}</div>
+                </div>
+              </div>
+
+              <div class="panel">
+                <div class="section-header">Soil Nutrients</div>
+                <table class="nutrient-table">
+                  <thead>
+                    <tr>
+                      <th>Nutrient</th>
+                      <th style="text-align: center;">Value</th>
+                      <th style="text-align: center;">Unit</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td class="nutrient-name">Nitrogen (N)</td>
+                      <td class="nutrient-value">${soilData.nitrogen}</td>
+                      <td class="nutrient-unit">mg/kg</td>
+                    </tr>
+                    <tr>
+                      <td class="nutrient-name">Phosphorus (P)</td>
+                      <td class="nutrient-value">${soilData.phosphorus}</td>
+                      <td class="nutrient-unit">mg/kg</td>
+                    </tr>
+                    <tr>
+                      <td class="nutrient-name">Potassium (K)</td>
+                      <td class="nutrient-value">${soilData.potassium}</td>
+                      <td class="nutrient-unit">mg/kg</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="panel">
+                <div class="section-header">pH Level</div>
+                <div class="info-row">
+                  <div class="info-label">pH Value</div>
+                  <div class="info-value">${soilData.phLevel}</div>
+                </div>
+                <div class="info-row">
+                  <div class="info-label">Classification</div>
+                  <div class="info-value">${phCategory.label}</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right Column: Recommendations -->
+            <div>
+              <div class="panel">
+                <div class="section-header">Recommended Crop</div>
+                <div class="recommendation-box">
+                  <div class="rec-label">Optimal Crop for Current Soil</div>
+                  <div class="rec-value">${soilData.recommendedCrop}</div>
+                </div>
+              </div>
+
+              <div class="panel" style="margin-top: 14px;">
+                <div class="section-header">Companion Planting</div>
+                <div class="companion-grid">
+                  <div class="companion-column">
+                    <h4>Compatible Crops</h4>
+                    <ul class="companion-list">
+                      ${soilData.companions.slice(0, 5).map(c => `<li class="good-companion">${c}</li>`).join('')}
+                    </ul>
+                  </div>
+                  <div class="companion-column">
+                    <h4>Incompatible Crops</h4>
+                    <ul class="companion-list">
+                      ${soilData.avoid.slice(0, 5).map(a => `<li class="bad-companion">${a}</li>`).join('')}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="footer">
+            This report has been generated by Farmulate.<br>
+            For agricultural advisory purposes only. Consult with a certified agronomist for detailed recommendations.
+          </div>
+          <div class="report-id">REPORT ID: FSA-${Date.now().toString(36).toUpperCase()}</div>
+        </body>
+        </html>
+      `;
+
+      const { uri } = await Print.printToFileAsync({ html });
+      
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(uri, {
+          mimeType: 'application/pdf',
+          dialogTitle: 'Share Soil Report',
+          UTI: 'com.adobe.pdf'
+        });
+      } else {
+        Alert.alert('Success', 'PDF generated successfully!');
+      }
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      Alert.alert('Error', 'Failed to generate PDF. Please try again.');
+    } finally {
+      setPrinting(false);
+    }
   };
 
   useEffect(() => {
@@ -135,10 +501,10 @@ const ReportScreen = () => {
   }
 
   const nutrients = [
-    { label: "Nitrogen", value: soilData.nitrogen, color: "#388e3c", icon: <Ionicons name="leaf" size={24} color="#fff" /> },
-    { label: "Phosphorus", value: soilData.phosphorus, color: "#43a047", icon: <MaterialCommunityIcons name="beaker-outline" size={24} color="#fff" /> },
-    { label: "Potassium", value: soilData.potassium, color: "#66bb6a", icon: <MaterialCommunityIcons name="flask" size={24} color="#fff" /> },
-    { label: "pH", value: soilData.phLevel, color: "#81c784", icon: <Ionicons name="water" size={24} color="#fff" /> },
+    { label: "Nitrogen", unit: "mg/kg", value: soilData.nitrogen, color: "#388e3c", icon: <Ionicons name="leaf" size={24} color="#fff" /> },
+    { label: "Phosphorus", unit: "mg/kg", value: soilData.phosphorus, color: "#43a047", icon: <MaterialCommunityIcons name="beaker-outline" size={24} color="#fff" /> },
+    { label: "Potassium", unit: "mg/kg", value: soilData.potassium, color: "#66bb6a", icon: <MaterialCommunityIcons name="flask" size={24} color="#fff" /> },
+    { label: "pH", unit: null, value: soilData.phLevel, color: "#81c784", icon: <Ionicons name="water" size={24} color="#fff" /> },
   ];
 
   return (
@@ -152,6 +518,17 @@ const ReportScreen = () => {
           style={styles.logo}
           resizeMode="contain"
         />
+        <TouchableOpacity 
+          onPress={generatePDF} 
+          style={styles.printButton}
+          disabled={printing}
+        >
+          {printing ? (
+            <ActivityIndicator size="small" color="#2e7d32" />
+          ) : (
+            <Ionicons name="print" size={22} color="#2e7d32" />
+          )}
+        </TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -240,6 +617,7 @@ const ReportScreen = () => {
                   {n.icon}
                   <Text style={styles.nutrientValue}>{n.value}</Text>
                   <Text style={styles.nutrientLabel}>{n.label}</Text>
+                  {n.unit && <Text style={styles.unitText}>{n.unit}</Text>}
 
                   {isPh && phCategory && (
                     <Text style={[styles.phCategoryText, { color: "#fff", marginTop: 4 }]}>
@@ -263,9 +641,37 @@ export default ReportScreen;
 const styles = StyleSheet.create({
 
   container: { flex: 1, backgroundColor: "#f5f5f5" },
-  header: { flexDirection: "row", backgroundColor: "#002d00", justifyContent: "center", height: 65 },
-  backButtonFloat: { backgroundColor: "#fff", borderRadius: 20, padding: 8, marginTop: 5, elevation: 4, marginRight: 160, shadowColor: "#000", shadowOpacity: 0.15, shadowOffset: { width: 0, height: 2 }, shadowRadius: 3, alignSelf: "center" },
-  logo: { marginTop: -15, height: 100, width: 150, right: 145 },
+  header: { flexDirection: "row", backgroundColor: "#002d00", justifyContent: "center", alignItems: "center", height: 65, paddingHorizontal: 16 },
+  backButtonFloat: { 
+    backgroundColor: "#fff", 
+    borderRadius: 20, 
+    padding: 8, 
+    elevation: 4, 
+    shadowColor: "#000", 
+    shadowOpacity: 0.15, 
+    shadowOffset: { width: 0, height: 2 }, 
+    shadowRadius: 3,
+    position: "absolute",
+    left: 16,
+    top: 12
+  },
+  printButton: { 
+    backgroundColor: "#fff", 
+    borderRadius: 20, 
+    padding: 8, 
+    elevation: 4, 
+    shadowColor: "#000", 
+    shadowOpacity: 0.15, 
+    shadowOffset: { width: 0, height: 2 }, 
+    shadowRadius: 3,
+    position: "absolute",
+    right: 16,
+    top: 12,
+    minWidth: 38,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  logo: { height: 100, width: 150 },
   scrollContent: { padding: 16, paddingBottom: 100 },
   sectionTitle: { fontSize: 25, fontWeight: "600", marginVertical: 12, color: "#000" },
   metaBox: { backgroundColor: "#fff", borderRadius: 12, padding: 12, marginHorizontal: 16, marginTop: 12, marginBottom: 8, alignItems: "center" },
@@ -279,6 +685,7 @@ const styles = StyleSheet.create({
   nutrientBox: { width: "48%", borderRadius: 12, padding: 12, marginBottom: 12, alignItems: "center" },
   nutrientValue: { fontSize: 20, fontWeight: "bold", color: "#fff" },
   nutrientLabel: { fontSize: 14, color: "#fff", marginTop: 4 },
+  unitText: { fontSize: 11, fontWeight: "600", color: "rgba(255,255,255,0.85)", marginTop: 2 },
   highlightCard: { backgroundColor: "#e8f5e9", borderRadius: 12, padding: 16, marginBottom: 16, alignItems: "center" },
   nextCropBox: { marginTop: 8, backgroundColor: "#2e7d32", paddingVertical: 12, paddingHorizontal: 60, borderRadius: 8 },
   nextCropText: { fontSize: 20, fontWeight: "bold", color: "#fff", textAlign: "center" },

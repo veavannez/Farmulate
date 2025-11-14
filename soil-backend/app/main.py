@@ -146,6 +146,11 @@ avoid_crops = {
 }
 
 # ===============================
+# Detection thresholds
+# ===============================
+SOIL_CONF_THRESHOLD = 0.5
+
+# ===============================
 # Predict Endpoint
 # ===============================
 @app.post("/predict")
@@ -165,8 +170,43 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
 
         results = yolo_model.predict(tmp_path)
         result = results[0]
-        if result.probs is None or result.probs.top1conf < 0.1:
-            raise HTTPException(status_code=400, detail="Soil texture undetected.")
+        # If model is unsure (no class above threshold), short-circuit with "No Soil Detected"
+        if (getattr(result, "probs", None) is None) or (float(getattr(result.probs, "top1conf", 0.0)) < SOIL_CONF_THRESHOLD):
+            soil_texture = "No Soil Detected"
+            recommended_crop = ""
+            companions = []
+            avoids = []
+
+            # Try to persist the attempt for history/analytics (optional if table allows)
+            try:
+                supabase.table("soil_results").insert({
+                    "user_id": user_id,
+                    "pot_name" : req.pot_name,
+                    "image_name": req.image_name or os.path.basename(req.imageUrl),
+                    "image_url": req.imageUrl,
+                    "prediction": soil_texture,
+                    "recommended_crop": recommended_crop,
+                    "n": req.N,
+                    "p": req.P,
+                    "k": req.K,
+                    "ph_level": req.ph,
+                    "companions": companions,
+                    "avoids": avoids,
+                    "created_at": datetime.utcnow().isoformat()
+                }).execute()
+            except Exception as e:
+                print("⚠️ Supabase insert (no-soil) failed:", e)
+
+            return {
+                "soil_texture": soil_texture,
+                "recommended_crop": recommended_crop,
+                "companions": companions,
+                "avoid": avoids,
+                # Return raw inputs when soil type is unknown
+                "converted_values": {"N": req.N, "P": req.P, "K": req.K, "ph": req.ph}
+            }
+
+        # Confident soil detection path
         top_idx = int(result.probs.top1)
         raw_label = result.names[top_idx]
         soil_texture = raw_label.replace("_Trained", "").capitalize()
