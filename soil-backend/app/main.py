@@ -149,6 +149,13 @@ avoid_crops = {
 # Detection thresholds
 # ===============================
 SOIL_CONF_THRESHOLD = 0.5
+CROP_CONF_THRESHOLD = 0.4  # XGBoost probability threshold
+
+# Reasonable NPK/pH ranges for agriculture (converted kg/ha for NPK)
+NPK_MIN = 0
+NPK_MAX = 500  # kg/ha
+PH_MIN = 3.5
+PH_MAX = 9.5
 
 # ===============================
 # Predict Endpoint
@@ -219,16 +226,48 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"NPK conversion failed: {e}")
 
-    # XGBoost prediction
-    try:
-        input_features = np.array([[N, P, K, req.ph]])
-        pred_encoded = xgb_model.predict(input_features)[0]
-        recommended_crop = le_label.inverse_transform([int(pred_encoded)])[0]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"XGBoost prediction failed: {e}")
-
-    companions = companion_crops.get(recommended_crop.lower(), [])
-    avoids = avoid_crops.get(recommended_crop.lower(), [])
+    # Check for extreme values
+    if not (NPK_MIN <= N <= NPK_MAX and NPK_MIN <= P <= NPK_MAX and NPK_MIN <= K <= NPK_MAX):
+        soil_texture_for_db = soil_texture
+        soil_texture = soil_texture  # Keep detected soil
+        recommended_crop = "No suitable crops"
+        companions = []
+        avoids = []
+    elif not (PH_MIN <= req.ph <= PH_MAX):
+        soil_texture_for_db = soil_texture
+        recommended_crop = "No suitable crops"
+        companions = []
+        avoids = []
+    else:
+        # XGBoost prediction with probability check
+        try:
+            input_features = np.array([[N, P, K, req.ph]])
+            
+            # Get prediction and probabilities
+            pred_encoded = xgb_model.predict(input_features)[0]
+            
+            # Try to get prediction probabilities (if model supports it)
+            try:
+                pred_proba = xgb_model.predict_proba(input_features)[0]
+                max_proba = float(np.max(pred_proba))
+                
+                # If confidence too low, return no suitable crops
+                if max_proba < CROP_CONF_THRESHOLD:
+                    recommended_crop = "No suitable crops"
+                    companions = []
+                    avoids = []
+                else:
+                    recommended_crop = le_label.inverse_transform([int(pred_encoded)])[0]
+                    companions = companion_crops.get(recommended_crop.lower(), [])
+                    avoids = avoid_crops.get(recommended_crop.lower(), [])
+            except AttributeError:
+                # Model doesn't support predict_proba, use prediction as-is
+                recommended_crop = le_label.inverse_transform([int(pred_encoded)])[0]
+                companions = companion_crops.get(recommended_crop.lower(), [])
+                avoids = avoid_crops.get(recommended_crop.lower(), [])
+                
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"XGBoost prediction failed: {e}")
 
     # Store in Supabase
     try:
