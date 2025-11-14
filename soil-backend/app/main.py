@@ -158,6 +158,24 @@ PH_MIN = 3.5
 PH_MAX = 9.5
 
 # ===============================
+# Health Check Endpoint
+# ===============================
+@app.get("/")
+async def root():
+    return {
+        "status": "online",
+        "service": "Soil Texture & Crop Recommendation API",
+        "endpoints": {
+            "/predict": "POST - Analyze soil and get crop recommendations",
+            "/docs": "GET - Interactive API documentation"
+        }
+    }
+
+@app.get("/health")
+async def health():
+    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
+
+# ===============================
 # Predict Endpoint
 # ===============================
 @app.post("/predict")
