@@ -11,6 +11,8 @@ import numpy as np
 import pickle, os, tempfile, requests
 from jose import jwt
 import asyncio
+import cv2
+import cv2
 
 # ===============================
 # Load Environment Variables
@@ -148,7 +150,7 @@ avoid_crops = {
 # ===============================
 # Detection thresholds
 # ===============================
-SOIL_CONF_THRESHOLD = 0.5
+SOIL_CONF_THRESHOLD = 0.7  # Raised from 0.5 for stricter detection
 CROP_CONF_THRESHOLD = 0.4  # XGBoost probability threshold
 
 # Reasonable NPK/pH ranges for agriculture (converted kg/ha for NPK)
@@ -156,6 +158,59 @@ NPK_MIN = 0
 NPK_MAX = 500  # kg/ha
 PH_MIN = 3.5
 PH_MAX = 9.5
+
+# ===============================
+# Pre-filter: Check if image looks like soil
+# ===============================
+def is_likely_soil(image_path: str) -> tuple[bool, str]:
+    """
+    Pre-filter to reject obvious non-soil images before YOLO.
+    Returns (is_soil: bool, reason: str)
+    """
+    try:
+        img = cv2.imread(image_path)
+        if img is None:
+            return False, "Could not read image"
+        
+        # Convert to HSV for better color analysis
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        h, s, v = cv2.split(hsv)
+        
+        # Check 1: Color range (soil is typically brown/tan/reddish)
+        # Hue: 0-30 (red-orange-brown) acceptable for soil
+        brown_pixels = np.sum((h >= 0) & (h <= 30))
+        total_pixels = h.size
+        brown_ratio = brown_pixels / total_pixels
+        
+        if brown_ratio < 0.15:  # Less than 15% brown-ish pixels
+            return False, f"Insufficient brown tones ({brown_ratio*100:.1f}%)"
+        
+        # Check 2: Saturation (soil has moderate saturation, not too vivid)
+        avg_saturation = np.mean(s)
+        if avg_saturation > 150:  # Too saturated (bright colors, not soil)
+            return False, f"Too saturated ({avg_saturation:.0f})"
+        
+        # Check 3: Texture variance (soil has grainy texture)
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        laplacian = cv2.Laplacian(gray, cv2.CV_64F)
+        texture_variance = np.var(laplacian)
+        
+        if texture_variance < 50:  # Too smooth (like ceramic/plastic)
+            return False, f"Too smooth ({texture_variance:.0f})"
+        
+        # Check 4: Edge density (manufactured objects have sharp edges)
+        edges = cv2.Canny(gray, 50, 150)
+        edge_ratio = np.sum(edges > 0) / total_pixels
+        
+        if edge_ratio > 0.3:  # Too many sharp edges
+            return False, f"Too many edges ({edge_ratio*100:.1f}%)"
+        
+        # Passed all checks
+        return True, "Passed pre-filter"
+        
+    except Exception as e:
+        print(f"⚠️ Pre-filter error: {e}")
+        return True, "Pre-filter error, allowing YOLO check"  # Fail-safe: let YOLO decide
 
 # ===============================
 # Health Check Endpoint
@@ -192,6 +247,44 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
             tmp.write(response.content)
             tmp_path = tmp.name
+
+        # Pre-filter: Check if image looks like soil
+        is_soil, reason = is_likely_soil(tmp_path)
+        print(f"🔍 Pre-filter: {reason}")
+        
+        if not is_soil:
+            # Failed pre-filter, return "No Soil Detected"
+            soil_texture = "No Soil Detected"
+            recommended_crop = ""
+            companions = []
+            avoids = []
+
+            try:
+                supabase.table("soil_results").insert({
+                    "user_id": user_id,
+                    "pot_name" : req.pot_name,
+                    "image_name": req.image_name or os.path.basename(req.imageUrl),
+                    "image_url": req.imageUrl,
+                    "prediction": f"{soil_texture} ({reason})",
+                    "recommended_crop": recommended_crop,
+                    "n": req.N,
+                    "p": req.P,
+                    "k": req.K,
+                    "ph_level": req.ph,
+                    "companions": companions,
+                    "avoids": avoids,
+                    "created_at": datetime.utcnow().isoformat()
+                }).execute()
+            except Exception as e:
+                print("⚠️ Supabase insert (pre-filter reject) failed:", e)
+
+            return {
+                "soil_texture": soil_texture,
+                "recommended_crop": recommended_crop,
+                "companions": companions,
+                "avoid": avoids,
+                "converted_values": {"N": req.N, "P": req.P, "K": req.K, "ph": req.ph}
+            }
 
         results = yolo_model.predict(tmp_path)
         result = results[0]
