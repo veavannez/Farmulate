@@ -16,12 +16,16 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useColorScheme,
   View
 } from "react-native";
 import { useSoil } from "../../context/soilContext";
 import { supabase } from "../../lib/supabase";
 
 const MainScreen = () => {
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === 'dark';
+  
   // 🌱 State variables
   const [nitrogen, setNitrogen] = useState("");
   const [phosphorus, setPhosphorus] = useState("");
@@ -454,18 +458,18 @@ useEffect(() => {
           {/* Pot/Plot Picker + compact delete */}
           <Text style={styles.label}>Select Pot/Plot</Text>
           <View style={styles.potPickerRow}>
-            <View style={styles.pickerContainer}>
+            <View style={[styles.pickerContainer, { backgroundColor: isDark ? '#2a2a2a' : '#fff' }]}>
               <Picker
                 selectedValue={selectedPot}
                 onValueChange={(val) => setSelectedPot(val)}
-                style={styles.picker}
-                dropdownIconColor="#fff"
+                style={[styles.picker, { color: isDark ? '#fff' : '#000' }]}
+                dropdownIconColor={isDark ? '#fff' : '#333'}
               >
-                <Picker.Item label=" Select Pot/Plot" value="default" color="#aaa" />
+                <Picker.Item label=" Select Pot/Plot" value="default" color={isDark ? '#aaa' : '#666'} />
                 {existingPots.map((pot, idx) => (
-                  <Picker.Item key={idx} label={pot} value={pot} color="#fff" />
+                  <Picker.Item key={idx} label={pot} value={pot} color={isDark ? '#fff' : '#000'} />
                 ))}
-                <Picker.Item label="🌱 Add New Pot/Plot" value="new" color="#fff" />
+                <Picker.Item label="🌱 Add New Pot/Plot" value="new" color={isDark ? '#fff' : '#000'} />
               </Picker>
             </View>
 
@@ -552,8 +556,8 @@ const styles = StyleSheet.create({
   deleteIconBtn: { marginLeft: 10, padding: 5 },
   deleteIcon: { fontSize: 22, color: "#800020" }, // burgundy
 
-  pickerContainer: { backgroundColor: "#fff", borderRadius: 10, marginBottom: 0, overflow: "hidden", flex:1 },
-  picker: { color: "#aaa", fontSize: 16 },
+  pickerContainer: { borderRadius: 10, marginBottom: 0, overflow: "hidden", flex:1 },
+  picker: { fontSize: 16 },
   scrollContainer: { flexGrow: 1, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", padding: 20 },
   decorContainer: { flexDirection: "row", justifyContent: "center", marginBottom: -15 },
   decorLeft: { width: 100, height: 40, marginRight: 100 },

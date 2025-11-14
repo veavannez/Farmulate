@@ -195,8 +195,13 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
 
         results = yolo_model.predict(tmp_path)
         result = results[0]
+        
+        # Extract confidence for logging
+        yolo_confidence = float(getattr(result.probs, "top1conf", 0.0)) if getattr(result, "probs", None) else 0.0
+        print(f"🔍 YOLO Confidence: {yolo_confidence:.3f} (threshold: {SOIL_CONF_THRESHOLD})")
+        
         # If model is unsure (no class above threshold), short-circuit with "No Soil Detected"
-        if (getattr(result, "probs", None) is None) or (float(getattr(result.probs, "top1conf", 0.0)) < SOIL_CONF_THRESHOLD):
+        if (getattr(result, "probs", None) is None) or (yolo_confidence < SOIL_CONF_THRESHOLD):
             soil_texture = "No Soil Detected"
             recommended_crop = ""
             companions = []
@@ -244,18 +249,15 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"NPK conversion failed: {e}")
 
+    # Initialize companions and avoids
+    companions = []
+    avoids = []
+    
     # Check for extreme values
     if not (NPK_MIN <= N <= NPK_MAX and NPK_MIN <= P <= NPK_MAX and NPK_MIN <= K <= NPK_MAX):
-        soil_texture_for_db = soil_texture
-        soil_texture = soil_texture  # Keep detected soil
         recommended_crop = "No suitable crops"
-        companions = []
-        avoids = []
     elif not (PH_MIN <= req.ph <= PH_MAX):
-        soil_texture_for_db = soil_texture
         recommended_crop = "No suitable crops"
-        companions = []
-        avoids = []
     else:
         # XGBoost prediction with probability check
         try:
