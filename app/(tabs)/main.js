@@ -40,6 +40,9 @@ const MainScreen = () => {
   const { setSoilData, setMappedSoilData } = useSoil();
   const router = useRouter();
 
+  // Picker display color: white placeholder, theme-aware selection
+  const pickerTextColor = selectedPot === 'default' ? 'transparent' : (isDark ? '#fff' : '#000');
+
   // 🔑 Get valid Supabase session token
   const getValidToken = async () => {
     let { data: sessionData, error: sessionError } = await supabase.auth.getSession();
@@ -459,17 +462,20 @@ useEffect(() => {
           <Text style={styles.label}>Select Pot/Plot</Text>
           <View style={styles.potPickerRow}>
             <View style={[styles.pickerContainer, { backgroundColor: isDark ? '#2a2a2a' : '#fff' }]}>
+              {selectedPot === 'default' && (
+                <Text pointerEvents="none" style={styles.pickerPlaceholder}> Select Pot/Plot</Text>
+              )}
               <Picker
                 selectedValue={selectedPot}
                 onValueChange={(val) => setSelectedPot(val)}
-                style={[styles.picker, { color: isDark ? '#fff' : '#000' }]}
+                style={[styles.picker, { color: pickerTextColor }]}
                 dropdownIconColor={isDark ? '#fff' : '#333'}
               >
-                <Picker.Item label=" Select Pot/Plot" value="default" color={isDark ? '#aaa' : '#666'} />
+                <Picker.Item label=" Select Pot/Plot" value="default" />
                 {existingPots.map((pot, idx) => (
-                  <Picker.Item key={idx} label={pot} value={pot} color={isDark ? '#fff' : '#000'} />
+                  <Picker.Item key={idx} label={pot} value={pot} />
                 ))}
-                <Picker.Item label="🌱 Add New Pot/Plot" value="new" color={isDark ? '#fff' : '#000'} />
+                <Picker.Item label="🌱 Add New Pot/Plot" value="new" />
               </Picker>
             </View>
 

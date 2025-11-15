@@ -30,8 +30,8 @@ RUN pip install -r /app/requirements.txt
 # Copy app code
 COPY app/ /app/
 
-# Expose port
-EXPOSE 8000
+# Expose port (Render provides $PORT at runtime; 10000 by default)
+EXPOSE 10000
 
-# Start uvicorn
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+# Start uvicorn binding to $PORT (fallback 8000 for local runs)
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1"]
