@@ -69,9 +69,14 @@ const MainScreen = () => {
           Alert.alert("Permission Required", "Gallery access is needed.");
           return;
         }
-        result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, quality: 1 });
+        result = await ImagePicker.launchImageLibraryAsync({ 
+          mediaTypes: ImagePicker.MediaTypeOptions.Images, 
+          allowsEditing: true, 
+          quality: 1,
+          allowsMultipleSelection: false
+        });
       }
-      if (!result.canceled) setSoilImage(result.assets[0].uri);
+      if (!result.canceled) setSoilImage(result.assets[0]);
     } catch (err) {
       console.error(err);
       Alert.alert("Error", "Something went wrong while picking the image.");
@@ -79,6 +84,7 @@ const MainScreen = () => {
   };
 
   const handleImageSelection = () => {
+    if (loading) return;
     if (Platform.OS === "ios") {
       ActionSheetIOS.showActionSheetWithOptions(
         { options: ["Cancel", "Take Photo", "Choose from Gallery"], cancelButtonIndex: 0 },
@@ -121,28 +127,60 @@ useEffect(() => {
 }, []);
 
   // ☁️ Upload Image
-  const uploadImage = async (uri, userId) => {
+  const uploadImage = async (imageAsset, userId) => {
     try {
-      if (!uri) return null;
-      const token = await getValidToken();
-      const fileUri = uri.startsWith("file://") ? uri : `file://${uri}`;
-      const ext = fileUri.split(".").pop().toLowerCase();
-      if (!["jpg", "jpeg", "png"].includes(ext)) {
-        Alert.alert("Unsupported file", "Please select a JPG, JPEG, or PNG image.");
+      const uri = imageAsset?.uri || imageAsset;
+      if (!uri) {
+        console.error("❌ No URI provided");
         return null;
       }
 
-      const cacheFile = `${FileSystem.cacheDirectory}${Date.now()}.${ext}`;
-      await FileSystem.copyAsync({ from: fileUri, to: cacheFile });
-      const base64 = await FileSystem.readAsStringAsync(cacheFile, { encoding: FileSystem.EncodingType.Base64 });
-      const buffer = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-      const fileName = `${userId}/${Date.now()}.${ext}`;
-      const { error } = await supabase.storage.from("soil-images").upload(fileName, buffer, { contentType: `image/${ext}`, upsert: true });
-      await FileSystem.deleteAsync(cacheFile, { idempotent: true });
-      if (error) throw error;
+      console.log("📤 Starting upload...", { uri, userId });
 
-      const { data: publicUrl } = supabase.storage.from("soil-images").getPublicUrl(fileName);
-      return publicUrl.publicUrl;
+      // Detect file type from URI or mimeType
+      let fileExtension = "jpg";
+      let contentType = "image/jpeg";
+
+      if (imageAsset?.mimeType) {
+        contentType = imageAsset.mimeType;
+      } else if (uri.toLowerCase().includes(".png")) {
+        contentType = "image/png";
+      } else if (uri.toLowerCase().includes(".jpg") || uri.toLowerCase().includes(".jpeg")) {
+        contentType = "image/jpeg";
+      }
+
+      if (contentType === "image/png") {
+        fileExtension = "png";
+      } else if (contentType === "image/jpeg") {
+        fileExtension = "jpg";
+      }
+
+      console.log("📸 Detected type:", contentType, "extension:", fileExtension);
+
+      // Read file as base64
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: "base64",
+      });
+
+      console.log("✅ Read file as base64, length:", base64.length);
+
+      // Convert to binary
+      const arrayBuffer = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+      console.log("✅ Converted to ArrayBuffer, size:", arrayBuffer.length);
+
+      const fileName = `${userId}/${Date.now()}.${fileExtension}`;
+
+      console.log("📤 Uploading to Supabase:", fileName);
+
+      const { data, error } = await supabase.storage
+        .from("soil-images")
+        .upload(fileName, arrayBuffer, {
+          contentType: contentType,
+          upsert: true,
+        });
+
+  const { data: publicUrlData } = supabase.storage.from("soil-images").getPublicUrl(fileName);
+  return publicUrlData.publicUrl;
     } catch (err) {
       console.error("Image upload failed:", err);
       Alert.alert("Upload Error", "Could not upload the soil image.");
@@ -228,7 +266,8 @@ useEffect(() => {
     let imageUrl = null;
     if (soilImage) imageUrl = await uploadImage(soilImage, user.id);
 
-    const image_name = soilImage ? soilImage.split("/").pop() : `soil_${Date.now()}.jpg`;
+  const imageUri = soilImage?.uri || soilImage;
+  const image_name = imageUri ? imageUri.split("/").pop() : `soil_${Date.now()}.jpg`;
 
     // 4️⃣ Fetch YOLO/XGBoost result
     const yoloResult = await fetchYoloResult(imageUrl, image_name, finalPotName);
@@ -356,8 +395,14 @@ useEffect(() => {
               <Picker
                 selectedValue={selectedPot}
                 onValueChange={(val) => setSelectedPot(val)}
+<<<<<<< Updated upstream
                 style={styles.picker}
                 dropdownIconColor="#fff"
+=======
+                style={[styles.picker, { color: pickerTextColor }]}
+                dropdownIconColor="#333"
+                enabled={!loading}
+>>>>>>> Stashed changes
               >
                 <Picker.Item label=" Select Pot/Plot" value="default" color="#aaa" />
                 {existingPots.map((pot, idx) => (
@@ -368,14 +413,14 @@ useEffect(() => {
             </View>
 
             {selectedPot !== "default" && selectedPot !== "new" && (
-              <TouchableOpacity style={styles.deleteIconBtn} onPress={handleDeletePot}>
+              <TouchableOpacity style={styles.deleteIconBtn} onPress={handleDeletePot} disabled={loading}>
                 <Text style={styles.deleteIcon}>🗑</Text>
               </TouchableOpacity>
             )}
           </View>
 
           {selectedPot === "new" && (
-            <TextInput placeholder="Enter new pot/plot name" placeholderTextColor="#aaa" style={styles.input} value={newPotName} onChangeText={setNewPotName} />
+            <TextInput placeholder="Enter new pot/plot name" placeholderTextColor="#aaa" style={styles.input} value={newPotName} onChangeText={setNewPotName} editable={!loading} />
           )}
 
           {/* Nutrient Inputs */}
@@ -399,6 +444,7 @@ useEffect(() => {
                     style={styles.input}
                     value={value}
                     keyboardType="numeric"
+                    editable={!loading}
                     onChangeText={(text) => {
                       // Remove any non-numeric characters (allow dot for decimal)
                       const filtered = text.replace(/[^0-9.]/g, "");
@@ -409,14 +455,14 @@ useEffect(() => {
               );
             })}
           {/* Image Upload */}
-          <TouchableOpacity style={styles.uploadBtn} onPress={handleImageSelection}>
+          <TouchableOpacity style={styles.uploadBtn} onPress={handleImageSelection} disabled={loading}>
             <Text style={styles.uploadText}>{soilImage?"✅ Change Soil Image":"📷 Add Soil Image"}</Text>
           </TouchableOpacity>
 
           {soilImage && (
             <View style={styles.previewContainer}>
-              <Image source={{ uri: soilImage }} style={styles.preview} resizeMode="cover" />
-              <TouchableOpacity style={styles.removeBtn} onPress={()=>setSoilImage(null)}>
+              <Image source={{ uri: soilImage?.uri || soilImage }} style={styles.preview} resizeMode="cover" />
+              <TouchableOpacity style={styles.removeBtn} onPress={()=>setSoilImage(null)} disabled={loading}>
                 <Text style={styles.removeText}>❌</Text>
               </TouchableOpacity>
             </View>
@@ -424,7 +470,7 @@ useEffect(() => {
         </View>
 
         {/* Submit Button */}
-        <TouchableOpacity style={styles.button} onPress={handleFarmulate}>
+        <TouchableOpacity style={[styles.button, loading && styles.buttonDisabled]} onPress={handleFarmulate} disabled={loading}>
           <Text style={styles.buttonText}>FARMULATE</Text>
         </TouchableOpacity>
 
@@ -445,8 +491,14 @@ const styles = StyleSheet.create({
   deleteIconBtn: { marginLeft: 10, padding: 5 },
   deleteIcon: { fontSize: 22, color: "#800020" }, // burgundy
 
+<<<<<<< Updated upstream
   pickerContainer: { backgroundColor: "#fff", borderRadius: 10, marginBottom: 0, overflow: "hidden", flex:1 },
   picker: { color: "#aaa", fontSize: 16 },
+=======
+  pickerContainer: { backgroundColor: "#fff", borderRadius: 10, marginBottom: 0, flex:1, height: 52, justifyContent: "center", paddingHorizontal: 12 },
+  picker: { fontSize: 16, height: 52, width: "100%", backgroundColor: "transparent" },
+  pickerPlaceholder: { position: "absolute", left: 12, right: 40, top: 0, height: 52, lineHeight: 52, color: "#aaa", fontSize: 16, zIndex: 2, textAlignVertical: "center" },
+>>>>>>> Stashed changes
   scrollContainer: { flexGrow: 1, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", padding: 20 },
   decorContainer: { flexDirection: "row", justifyContent: "center", marginBottom: -15 },
   decorLeft: { width: 100, height: 40, marginRight: 100 },
@@ -462,6 +514,7 @@ const styles = StyleSheet.create({
   label:{ fontWeight:"bold", marginBottom:5, color:"#fff" },
   input:{ backgroundColor:"#fff", padding:12, borderRadius:10, marginBottom:15, fontSize:16 },
   button:{ backgroundColor:"#004d00", padding:15, borderRadius:25, alignItems:"center", marginTop:20, width:"90%" },
+  buttonDisabled:{ opacity: 0.6 },
   buttonText:{ color:"#fff", fontSize:18, fontWeight:"bold" },
   loadingOverlay:{ position:"absolute", top:0,left:0,right:0,bottom:0, backgroundColor:"rgba(255,255,255,0.8)", justifyContent:"center", alignItems:"center", paddingTop:250, zIndex:10 },
   loadingText:{ marginTop:5, fontSize:13, color:"#6B7280", fontWeight:"550" },
