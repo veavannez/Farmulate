@@ -150,8 +150,8 @@ avoid_crops = {
 # ===============================
 # Detection thresholds
 # ===============================
-SOIL_CONF_THRESHOLD = 0.7  # Raised from 0.5 for stricter detection
-CROP_CONF_THRESHOLD = 0.4  # XGBoost probability threshold
+SOIL_CONF_THRESHOLD = 0.5  # Raised from 0.5 for stricter detection
+CROP_CONF_THRESHOLD = 0.5  # XGBoost probability threshold
 
 # Reasonable NPK/pH ranges for agriculture (converted kg/ha for NPK)
 NPK_MIN = 0
