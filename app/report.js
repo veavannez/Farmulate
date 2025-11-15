@@ -468,7 +468,7 @@ const ReportScreen = () => {
             soilImage: report.image_url || report.soilImage,
             companions: report.companions || report.companions || [],
             avoid: report.avoids || report.avoid || [],
-            confidence: report.confidence ?? null,
+            confidence: (typeof report.crop_confidence === 'number' ? report.crop_confidence : (report.confidence ?? null)),
             generatedAt: report.created_at || report.generatedAt,
           });
           console.log("📊 report.js - Soil data loaded:", {

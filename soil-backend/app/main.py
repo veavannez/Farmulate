@@ -274,6 +274,7 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
                     "ph_level": req.ph,
                     "companions": companions,
                     "avoids": avoids,
+                    "crop_confidence": None,
                     "created_at": datetime.utcnow().isoformat()
                 }).execute()
             except Exception as e:
@@ -317,6 +318,7 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
                     "ph_level": req.ph,
                     "companions": companions,
                     "avoids": avoids,
+                    "crop_confidence": None,
                     "created_at": datetime.utcnow().isoformat()
                 }).execute()
             except Exception as e:
@@ -355,6 +357,7 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
                     "ph_level": req.ph,
                     "companions": companions,
                     "avoids": avoids,
+                    "crop_confidence": None,
                     "created_at": datetime.utcnow().isoformat()
                 }).execute()
             except Exception as e:
@@ -452,6 +455,7 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
             "ph_level": req.ph,
             "companions": companions,
             "avoids": avoids,
+            "crop_confidence": crop_confidence,
             "created_at": datetime.utcnow().isoformat()
         }).execute()
     except Exception as e:
