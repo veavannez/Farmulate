@@ -151,7 +151,8 @@ avoid_crops = {
 # Detection thresholds
 # ===============================
 SOIL_CONF_THRESHOLD = 0.5  # Raised from 0.5 for stricter detection
-CROP_CONF_THRESHOLD = 0.5  # XGBoost probability threshold
+CROP_CONF_THRESHOLD = 0.5  # legacy threshold (kept for reference)
+CROP_TOP_PROB_THRESHOLD = 0.7  # require >= 0.70 top class probability
 
 # Reasonable NPK/pH ranges for agriculture (converted kg/ha for NPK)
 NPK_MIN = 0
@@ -254,8 +255,8 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
         
         if not is_soil:
             # Failed pre-filter, return "No Soil Detected"
-            soil_texture = "No Soil Detected"
-            recommended_crop = ""
+            soil_texture = "No soil detected"
+            recommended_crop = "no_crop"
             companions = []
             avoids = []
 
@@ -283,6 +284,7 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
                 "recommended_crop": recommended_crop,
                 "companions": companions,
                 "avoid": avoids,
+                "confidence": None,
                 "converted_values": {"N": req.N, "P": req.P, "K": req.K, "ph": req.ph}
             }
 
@@ -295,8 +297,8 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
         
         # If model is unsure (no class above threshold), short-circuit with "No Soil Detected"
         if (getattr(result, "probs", None) is None) or (yolo_confidence < SOIL_CONF_THRESHOLD):
-            soil_texture = "No Soil Detected"
-            recommended_crop = ""
+            soil_texture = "No soil detected"
+            recommended_crop = "no_crop"
             companions = []
             avoids = []
 
@@ -325,6 +327,7 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
                 "recommended_crop": recommended_crop,
                 "companions": companions,
                 "avoid": avoids,
+                "confidence": None,
                 # Return raw inputs when soil type is unknown
                 "converted_values": {"N": req.N, "P": req.P, "K": req.K, "ph": req.ph}
             }
@@ -332,6 +335,40 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
         # Confident soil detection path
         top_idx = int(result.probs.top1)
         raw_label = result.names[top_idx]
+        normalized_label = str(raw_label).strip().lower().replace(" ", "_")
+        if normalized_label in {"not_soil", "no_soil", "no_soil_detected", "notsoil"}:
+            soil_texture = "No soil detected"
+            recommended_crop = "no_crop"
+            companions = []
+            avoids = []
+            try:
+                supabase.table("soil_results").insert({
+                    "user_id": user_id,
+                    "pot_name" : req.pot_name,
+                    "image_name": req.image_name or os.path.basename(req.imageUrl),
+                    "image_url": req.imageUrl,
+                    "prediction": soil_texture,
+                    "recommended_crop": recommended_crop,
+                    "n": req.N,
+                    "p": req.P,
+                    "k": req.K,
+                    "ph_level": req.ph,
+                    "companions": companions,
+                    "avoids": avoids,
+                    "created_at": datetime.utcnow().isoformat()
+                }).execute()
+            except Exception as e:
+                print("⚠️ Supabase insert (not_soil) failed:", e)
+
+            return {
+                "soil_texture": soil_texture,
+                "recommended_crop": recommended_crop,
+                "companions": companions,
+                "avoid": avoids,
+                "confidence": None,
+                "converted_values": {"N": req.N, "P": req.P, "K": req.K, "ph": req.ph}
+            }
+
         soil_texture = raw_label.replace("_Trained", "").capitalize()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"YOLO prediction failed: {e}")
@@ -345,12 +382,13 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
     # Initialize companions and avoids
     companions = []
     avoids = []
+    crop_confidence: float | None = None
     
     # Check for extreme values
     if not (NPK_MIN <= N <= NPK_MAX and NPK_MIN <= P <= NPK_MAX and NPK_MIN <= K <= NPK_MAX):
-        recommended_crop = "No suitable crops"
+        recommended_crop = "no_crop"
     elif not (PH_MIN <= req.ph <= PH_MAX):
-        recommended_crop = "No suitable crops"
+        recommended_crop = "no_crop"
     else:
         # XGBoost prediction with probability check
         try:
@@ -362,22 +400,39 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
             # Try to get prediction probabilities (if model supports it)
             try:
                 pred_proba = xgb_model.predict_proba(input_features)[0]
-                max_proba = float(np.max(pred_proba))
-                
-                # If confidence too low, return no suitable crops
-                if max_proba < CROP_CONF_THRESHOLD:
-                    recommended_crop = "No suitable crops"
+                # probability for the predicted class index
+                try:
+                    classes = list(getattr(xgb_model, "classes_", []))
+                    class_pos = classes.index(pred_encoded) if classes else int(pred_encoded)
+                except ValueError:
+                    class_pos = int(pred_encoded)
+                max_proba = float(pred_proba[class_pos])
+                crop_confidence = max_proba
+
+                decoded_label = le_label.inverse_transform([int(pred_encoded)])[0]
+                # Gate by top probability threshold or explicit no_crop label
+                if (max_proba < CROP_TOP_PROB_THRESHOLD) or (decoded_label.strip().lower() == "no_crop"):
+                    recommended_crop = "no_crop"
                     companions = []
                     avoids = []
                 else:
-                    recommended_crop = le_label.inverse_transform([int(pred_encoded)])[0]
+                    recommended_crop = decoded_label
                     companions = companion_crops.get(recommended_crop.lower(), [])
                     avoids = avoid_crops.get(recommended_crop.lower(), [])
             except AttributeError:
                 # Model doesn't support predict_proba, use prediction as-is
-                recommended_crop = le_label.inverse_transform([int(pred_encoded)])[0]
-                companions = companion_crops.get(recommended_crop.lower(), [])
-                avoids = avoid_crops.get(recommended_crop.lower(), [])
+                decoded_label = le_label.inverse_transform([int(pred_encoded)])[0]
+                # Without proba support, be conservative: treat unknown as no_crop
+                if decoded_label.strip().lower() == "no_crop":
+                    recommended_crop = "no_crop"
+                    companions = []
+                    avoids = []
+                    crop_confidence = None
+                else:
+                    recommended_crop = decoded_label
+                    companions = companion_crops.get(recommended_crop.lower(), [])
+                    avoids = avoid_crops.get(recommended_crop.lower(), [])
+                    crop_confidence = None
                 
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"XGBoost prediction failed: {e}")
@@ -407,6 +462,7 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
     "recommended_crop": recommended_crop,
     "companions": companions,
     "avoid": avoids,
+    "confidence": crop_confidence,
     "converted_values": {"N": N, "P": P, "K": K, "ph": req.ph}
 }
 

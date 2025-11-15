@@ -41,7 +41,7 @@ const MainScreen = () => {
   const router = useRouter();
 
   // Picker display color: white placeholder, theme-aware selection
-  const pickerTextColor = selectedPot === 'default' ? 'transparent' : (isDark ? '#fff' : '#000');
+  const pickerTextColor = selectedPot === 'default' ? 'transparent' : '#000';
 
   // 🔑 Get valid Supabase session token
   const getValidToken = async () => {
@@ -238,7 +238,8 @@ useEffect(() => {
         prediction: result.soil_texture || "Not detected", 
         recommended_crop: result.recommended_crop || "No recommendation", 
         companions: result.companions || [], 
-        avoid: result.avoid || [] 
+        avoid: result.avoid || [],
+        confidence: typeof result.confidence === 'number' ? result.confidence : null
       };
     } catch (err) {
       console.error("YOLO API Error:", err);
@@ -338,32 +339,21 @@ useEffect(() => {
       // Don't throw - backend already saved to soil_results
     }
 
-    // 6️⃣ Fetch latest inserted result from backend (backend already inserted it)
-    const { data: latestResult, error: fetchError } = await supabase
-      .from("soil_results")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .limit(1);
-
-    if (fetchError) throw fetchError;
-
-    if (latestResult?.length) {
-      const row = latestResult[0];
-      setMappedSoilData({
-        potName: row.pot_name,
-        soilTexture: row.prediction,
-        recommendedCrop: row.recommended_crop,
-        nitrogen: row.n,
-        phosphorus: row.p,
-        potassium: row.k,
-        phLevel: row.ph_level,
-        soilImage: row.image_url,
-        companions: row.companions,
-        avoid: row.avoids,
-        generatedAt: row.created_at,
-      });
-    }
+    // 6️⃣ Build report payload from response (ensures confidence is available)
+    setMappedSoilData({
+      potName: finalPotName,
+      soilTexture: yoloResult.prediction,
+      recommendedCrop: yoloResult.recommended_crop,
+      nitrogen: Number(nitrogen),
+      phosphorus: Number(phosphorus),
+      potassium: Number(potassium),
+      phLevel: Number(phLevel),
+      soilImage: imageUrl,
+      companions: Array.isArray(yoloResult.companions) ? yoloResult.companions : [],
+      avoid: Array.isArray(yoloResult.avoid) ? yoloResult.avoid : [],
+      confidence: yoloResult.confidence ?? null,
+      generatedAt: new Date().toISOString(),
+    });
 
     router.push("/report");
 
@@ -461,15 +451,15 @@ useEffect(() => {
           {/* Pot/Plot Picker + compact delete */}
           <Text style={styles.label}>Select Pot/Plot</Text>
           <View style={styles.potPickerRow}>
-            <View style={[styles.pickerContainer, { backgroundColor: isDark ? '#2a2a2a' : '#fff' }]}>
+            <View style={styles.pickerContainer}>
               {selectedPot === 'default' && (
-                <Text pointerEvents="none" style={styles.pickerPlaceholder}> Select Pot/Plot</Text>
+                <Text pointerEvents="none" style={styles.pickerPlaceholder}>Select Pot/Plot</Text>
               )}
               <Picker
                 selectedValue={selectedPot}
                 onValueChange={(val) => setSelectedPot(val)}
                 style={[styles.picker, { color: pickerTextColor }]}
-                dropdownIconColor={isDark ? '#fff' : '#333'}
+                dropdownIconColor="#333"
               >
                 <Picker.Item label=" Select Pot/Plot" value="default" />
                 {existingPots.map((pot, idx) => (
@@ -562,8 +552,9 @@ const styles = StyleSheet.create({
   deleteIconBtn: { marginLeft: 10, padding: 5 },
   deleteIcon: { fontSize: 22, color: "#800020" }, // burgundy
 
-  pickerContainer: { borderRadius: 10, marginBottom: 0, overflow: "hidden", flex:1 },
-  picker: { fontSize: 16 },
+  pickerContainer: { backgroundColor: "#fff", borderRadius: 10, marginBottom: 0, overflow: "hidden", flex:1, height: 48, justifyContent: "center" },
+  picker: { fontSize: 16, height: 48, width: "100%", backgroundColor: "transparent" },
+  pickerPlaceholder: { position: "absolute", left: 12, top: 12, color: "#aaa", fontSize: 16, zIndex: 1 },
   scrollContainer: { flexGrow: 1, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", padding: 20 },
   decorContainer: { flexDirection: "row", justifyContent: "center", marginBottom: -15 },
   decorLeft: { width: 100, height: 40, marginRight: 100 },

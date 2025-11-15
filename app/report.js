@@ -5,14 +5,14 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Sharing from 'expo-sharing';
 import { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { useSoil } from "../context/soilContext";
 import { supabase } from "../lib/supabase";
@@ -64,7 +64,13 @@ const ReportScreen = () => {
     setPrinting(true);
     try {
       const phCategory = getPhCategory(parseFloat(soilData.phLevel));
-      
+      const isNoCrop = (soilData.recommendedCrop || "").toString().toLowerCase() === "no_crop" || soilData.recommendedCrop === "No suitable crops";
+      const confPct = typeof soilData.confidence === 'number' ? Math.round(soilData.confidence * 100) : null;
+      const recBoxClass = `recommendation-box${isNoCrop ? ' red' : ''}`;
+      const recValueClass = `rec-value${isNoCrop ? ' red' : ''}`;
+      const recText = isNoCrop ? 'No crop recommended' : soilData.recommendedCrop;
+      const confidenceHtml = confPct !== null ? `<div class="confidence">Confidence: ${confPct}%</div>` : '';
+
       const html = `
         <!DOCTYPE html>
         <html>
@@ -214,12 +220,8 @@ const ReportScreen = () => {
               font-size: 10px;
               color: #666;
             }
-            .recommendation-box {
-              background: #e8f5e9;
-              border-left: 4px solid #2e7d32;
-              padding: 12px;
-              margin-top: 10px;
-            }
+            .recommendation-box { background: #e8f5e9; border-left: 4px solid #2e7d32; padding: 12px; margin-top: 10px; }
+            .recommendation-box.red { background: #ffebee; border-left-color: #c62828; }
             .rec-label {
               font-size: 10px;
               color: #555;
@@ -232,6 +234,8 @@ const ReportScreen = () => {
               font-weight: 700;
               color: #2e7d32;
             }
+            .rec-value.red { color: #c62828; }
+            .confidence { font-size: 11px; color: #555; margin-top: 6px; font-weight: 600; }
             .companion-grid {
               display: grid;
               grid-template-columns: 1fr 1fr;
@@ -364,9 +368,10 @@ const ReportScreen = () => {
             <div>
               <div class="panel">
                 <div class="section-header">Recommended Crop</div>
-                <div class="recommendation-box">
+                <div class="${recBoxClass}">
                   <div class="rec-label">Optimal Crop for Current Soil</div>
-                  <div class="rec-value">${soilData.recommendedCrop}</div>
+                  <div class="${recValueClass}">${recText}</div>
+                  ${confidenceHtml}
                 </div>
               </div>
 
@@ -463,6 +468,7 @@ const ReportScreen = () => {
             soilImage: report.image_url || report.soilImage,
             companions: report.companions || report.companions || [],
             avoid: report.avoids || report.avoid || [],
+            confidence: report.confidence ?? null,
             generatedAt: report.created_at || report.generatedAt,
           });
           console.log("📊 report.js - Soil data loaded:", {
@@ -563,12 +569,21 @@ const ReportScreen = () => {
         <Text style={styles.sectionTitle}>
           <MaterialCommunityIcons name="repeat" size={22} color="#2e7d32" /> Crop Rotation
         </Text>
-        <View style={styles.highlightCard}>
-          <Text style={styles.subHeader}>Recommended Crop</Text>
-          <View style={styles.nextCropBox}>
-            <Text style={styles.nextCropText}>{soilData.recommendedCrop}</Text>
-          </View>
-        </View>
+        {(() => {
+          const isNoCrop = (soilData.recommendedCrop || "").toString().toLowerCase() === "no_crop" || soilData.recommendedCrop === "No suitable crops";
+          const confPct = typeof soilData.confidence === 'number' ? Math.round(soilData.confidence * 100) : null;
+          return (
+            <View style={isNoCrop ? styles.highlightCardRed : styles.highlightCard}>
+              <Text style={styles.subHeader}>Recommended Crop</Text>
+              <View style={isNoCrop ? styles.nextCropBoxRed : styles.nextCropBox}>
+                <Text style={styles.nextCropText}>{isNoCrop ? "No crop recommended" : soilData.recommendedCrop}</Text>
+              </View>
+              {confPct !== null && (
+                <Text style={styles.confidenceText}>Confidence: {confPct}%</Text>
+              )}
+            </View>
+          );
+        })()}
 
         <Text style={styles.sectionTitle}>
           <MaterialCommunityIcons name="flower" size={22} color="#2e7d32" /> Companion Planting
@@ -687,8 +702,11 @@ const styles = StyleSheet.create({
   nutrientLabel: { fontSize: 14, color: "#fff", marginTop: 4 },
   unitText: { fontSize: 11, fontWeight: "600", color: "rgba(255,255,255,0.85)", marginTop: 2 },
   highlightCard: { backgroundColor: "#e8f5e9", borderRadius: 12, padding: 16, marginBottom: 16, alignItems: "center" },
+  highlightCardRed: { backgroundColor: "#ffebee", borderRadius: 12, padding: 16, marginBottom: 16, alignItems: "center" },
   nextCropBox: { marginTop: 8, backgroundColor: "#2e7d32", paddingVertical: 12, paddingHorizontal: 60, borderRadius: 8 },
+  nextCropBoxRed: { marginTop: 8, backgroundColor: "#c62828", paddingVertical: 12, paddingHorizontal: 60, borderRadius: 8 },
   nextCropText: { fontSize: 20, fontWeight: "bold", color: "#fff", textAlign: "center" },
+  confidenceText: { marginTop: 8, fontSize: 12, color: "#555", fontWeight: "600" },
   companionHeaderRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 8 },
   companionListRow: { flexDirection: "row", justifyContent: "space-between" },
   goodCropItem: { backgroundColor: "#e8f5e9", color: "#2e7d32", paddingVertical: 5, marginVertical: 2, borderRadius: 4, textAlign: "center", fontWeight: "500", marginHorizontal: 10 },
