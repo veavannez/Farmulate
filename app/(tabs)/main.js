@@ -38,14 +38,29 @@ const MainScreen = () => {
 
   // 🔑 Get valid Supabase session token
   const getValidToken = async () => {
-    let { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    // Get current session
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
     if (sessionError) throw sessionError;
 
     let token = sessionData?.session?.access_token;
-    if (!token || (sessionData?.session?.expires_at && Date.now() / 1000 > sessionData.session.expires_at)) {
-      const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
-      if (refreshError) throw refreshError;
-      token = refreshed?.session?.access_token;
+    const expiresAtSec = sessionData?.session?.expires_at;
+    const isExpired = expiresAtSec ? Date.now() / 1000 > expiresAtSec : !token;
+
+    if (!token || isExpired) {
+      try {
+        const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+        if (refreshError) throw refreshError;
+        token = refreshed?.session?.access_token;
+      } catch (e) {
+        // Refresh failed (e.g., invalid refresh token). Sign out and redirect.
+        await supabase.auth.signOut();
+        Alert.alert(
+          "Session Expired",
+          "Please sign in again.",
+          [{ text: "OK", onPress: () => router.replace("/") }]
+        );
+        throw e;
+      }
     }
 
     if (!token) throw new Error("No valid Supabase session token");
@@ -395,14 +410,12 @@ useEffect(() => {
               <Picker
                 selectedValue={selectedPot}
                 onValueChange={(val) => setSelectedPot(val)}
-<<<<<<< Updated upstream
-                style={styles.picker}
-                dropdownIconColor="#fff"
-=======
-                style={[styles.picker, { color: pickerTextColor }]}
+                style={[
+                  styles.picker,
+                  selectedPot === "default" ? { color: "#aaa" } : { color: "#000" }
+                ]}
                 dropdownIconColor="#333"
                 enabled={!loading}
->>>>>>> Stashed changes
               >
                 <Picker.Item label=" Select Pot/Plot" value="default" color="#aaa" />
                 {existingPots.map((pot, idx) => (
@@ -491,14 +504,9 @@ const styles = StyleSheet.create({
   deleteIconBtn: { marginLeft: 10, padding: 5 },
   deleteIcon: { fontSize: 22, color: "#800020" }, // burgundy
 
-<<<<<<< Updated upstream
-  pickerContainer: { backgroundColor: "#fff", borderRadius: 10, marginBottom: 0, overflow: "hidden", flex:1 },
-  picker: { color: "#aaa", fontSize: 16 },
-=======
   pickerContainer: { backgroundColor: "#fff", borderRadius: 10, marginBottom: 0, flex:1, height: 52, justifyContent: "center", paddingHorizontal: 12 },
   picker: { fontSize: 16, height: 52, width: "100%", backgroundColor: "transparent" },
   pickerPlaceholder: { position: "absolute", left: 12, right: 40, top: 0, height: 52, lineHeight: 52, color: "#aaa", fontSize: 16, zIndex: 2, textAlignVertical: "center" },
->>>>>>> Stashed changes
   scrollContainer: { flexGrow: 1, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", padding: 20 },
   decorContainer: { flexDirection: "row", justifyContent: "center", marginBottom: -15 },
   decorLeft: { width: 100, height: 40, marginRight: 100 },
