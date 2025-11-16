@@ -616,14 +616,19 @@ const ReportScreen = () => {
 
   if (!soilData) {
     return (
-      <View style={styles.centered}>
-        <Text style={styles.empty}>No report available.</Text>
-        <TouchableOpacity
-          style={styles.button}
-          onPress={() => router.push("/(tabs)/main")}
-        >
-          <Text style={styles.buttonText}>Go to Main</Text>
-        </TouchableOpacity>
+      <View style={[styles.container, { justifyContent: "center" }] }>
+        <View style={[styles.card, { marginHorizontal: 16, alignItems: "center" }]}>
+          <Text style={{ fontSize: 18, fontWeight: "700", color: "#002d00", marginBottom: 6 }}>No Reports</Text>
+          <Text style={{ fontSize: 14, color: "#555", textAlign: "center", marginBottom: 12 }}>
+            You haven’t generated a soil report yet.
+          </Text>
+          <TouchableOpacity
+            style={styles.button}
+            onPress={() => router.push("/(tabs)/main")}
+          >
+            <Text style={styles.buttonText}>Add Report</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
@@ -734,37 +739,54 @@ const ReportScreen = () => {
         </Text>
 
         <View style={styles.card}>
-          <View style={styles.nutrientGrid}>
-            {nutrients.map((n, idx) => {
-              const isPh = n.label === "pH";
-              const phCategory = isPh ? getPhCategory(parseFloat(n.value)) : null;
+          {(!soilData || (
+            soilData.nitrogen == null &&
+            soilData.phosphorus == null &&
+            soilData.potassium == null &&
+            soilData.phLevel == null
+          )) ? (
+            <View style={{ alignItems: "center" }}>
+              <Text style={styles.empty}>No reports found.</Text>
+              <TouchableOpacity
+                style={[styles.button, { marginTop: 8 }]}
+                onPress={() => router.push("/(tabs)/main")}
+              >
+                <Text style={styles.buttonText}>Add Report</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.nutrientGrid}>
+              {nutrients.map((n, idx) => {
+                const isPh = n.label === "pH";
+                const phCategory = isPh ? getPhCategory(parseFloat(n.value)) : null;
 
-              return (
-                <View
-                  key={idx}
-                  style={[
-                    styles.nutrientBox,
-                    { 
-                      backgroundColor: isPh && phCategory ? phCategory.color : n.color,
-                      height: 140,          // fixed height for all boxes
-                      justifyContent: "center"
-                    },
-                  ]}
-                >
-                  {n.icon}
-                  <Text style={styles.nutrientValue}>{n.value}</Text>
-                  <Text style={styles.nutrientLabel}>{n.label}</Text>
-                  {n.unit && <Text style={styles.unitText}>{n.unit}</Text>}
+                return (
+                  <View
+                    key={idx}
+                    style={[
+                      styles.nutrientBox,
+                      { 
+                        backgroundColor: isPh && phCategory ? phCategory.color : n.color,
+                        height: 140,
+                        justifyContent: "center"
+                      },
+                    ]}
+                  >
+                    {n.icon}
+                    <Text style={styles.nutrientValue}>{n.value}</Text>
+                    <Text style={styles.nutrientLabel}>{n.label}</Text>
+                    {n.unit && <Text style={styles.unitText}>{n.unit}</Text>}
 
-                  {isPh && phCategory && (
-                    <Text style={[styles.phCategoryText, { color: "#fff", marginTop: 4 }]}>
-                      {phCategory.label}
-                    </Text>
-                  )}
-                </View>
-              );
-            })}
-          </View>
+                    {isPh && phCategory && (
+                      <Text style={[styles.phCategoryText, { color: "#fff", marginTop: 4 }]}>
+                        {phCategory.label}
+                      </Text>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          )}
         </View>
       </ScrollView>
     </View>

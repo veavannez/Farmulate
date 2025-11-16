@@ -359,6 +359,12 @@ export default function HistoryScreen() {
       {history.length === 0 ? (
         <View style={styles.emptyContainer}>
           <Text style={styles.empty}>No reports found.</Text>
+          <TouchableOpacity
+            onPress={() => router.push("/(tabs)/main")}
+            style={{ marginTop: 12, backgroundColor: '#2e7d32', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8 }}
+          >
+            <Text style={{ color: '#fff', fontWeight: '700' }}>Add Report</Text>
+          </TouchableOpacity>
         </View>
       ) : (
         <FlatList
