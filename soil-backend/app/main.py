@@ -16,7 +16,7 @@ from typing import Optional
 # ===============================
 # Load Environment Variables
 # ===============================
-env_path = Path(_file_).resolve().parents[1] / ".env"
+env_path = Path(__file__).resolve().parents[1] / ".env"
 load_dotenv(dotenv_path=env_path)
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
