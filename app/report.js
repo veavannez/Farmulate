@@ -1,19 +1,19 @@
 // app/report.js
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Print from 'expo-print';
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Sharing from 'expo-sharing';
 import { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { useSoil } from "../context/soilContext";
 import { supabase } from "../lib/supabase";
@@ -101,11 +101,40 @@ const ReportScreen = () => {
       const companions = Array.isArray(soilData.companions) ? soilData.companions : [];
       const avoids = Array.isArray(soilData.avoid) ? soilData.avoid : [];
       const companionsHtml = companions.length > 0 
-        ? companions.slice(0, 5).map(c => `<li class="good-companion">${c || 'Unknown'}</li>`).join('')
-        : '<li style="color: #999;">None identified</li>';
+        ? companions.slice(0, 5).map(c => `<li class=\"good-companion\">${c || 'Unknown'}</li>`).join('')
+        : '<li style=\"color: #999;\">None identified</li>';
       const avoidsHtml = avoids.length > 0
-        ? avoids.slice(0, 5).map(a => `<li class="bad-companion">${a || 'Unknown'}</li>`).join('')
-        : '<li style="color: #999;">None identified</li>';
+        ? avoids.slice(0, 5).map(a => `<li class=\"bad-companion\">${a || 'Unknown'}</li>`).join('')
+        : '<li style=\"color: #999;\">None identified</li>';
+
+      // Build minimalist line chart data (0-100 scale)
+      const toNum = v => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
+      const N = toNum(soilData.nitrogen), P = toNum(soilData.phosphorus), K = toNum(soilData.potassium), pHVal = toNum(soilData.phLevel);
+      const clamp01 = x => Math.max(0, Math.min(1, x));
+      const n100 = Math.round(clamp01(N/200)*100);
+      const p100 = Math.round(clamp01(P/100)*100);
+      const k100 = Math.round(clamp01(K/300)*100);
+      const ph100 = Math.round(clamp01(pHVal/14)*100);
+      const points = [
+        { label: 'N', v: n100 },
+        { label: 'P', v: p100 },
+        { label: 'K', v: k100 },
+        { label: 'pH', v: ph100 },
+      ];
+      const w = 300, h = 120, lm=28, rm=8, tm=8, bm=16;
+      const plotW = w - lm - rm, plotH = h - tm - bm;
+      const x = i => lm + (i * (plotW) / (points.length - 1));
+      const y = v => tm + (100 - v) / 100 * plotH;
+      const pathD = points.map((p,i) => `${i===0?'M':'L'} ${x(i).toFixed(2)} ${y(p.v).toFixed(2)}`).join(' ');
+      const circles = points.map((p,i)=> `<circle cx=\"${x(i).toFixed(2)}\" cy=\"${y(p.v).toFixed(2)}\" r=\"2.5\" fill=\"#2e7d32\" />`).join('');
+      const xLabels = points.map((p,i)=> `<text x=\"${x(i).toFixed(2)}\" y=\"${h-4}\" font-size=\"8\" text-anchor=\"middle\" fill=\"#444\">${p.label}</text>`).join('');
+      const gridLines = [0,20,40,60,80,100].map(t => {
+        const yy = y(t).toFixed(2);
+        return `<line x1=\"${lm}\" y1=\"${yy}\" x2=\"${w-rm}\" y2=\"${yy}\" stroke=\"#eaeaea\" stroke-width=\"1\" />\n          <text x=\"${lm-4}\" y=\"${yy}\" font-size=\"7\" text-anchor=\"end\" fill=\"#777\" dy=\"2\">${t}</text>`;
+      }).join('');
+      const chartSvg = `\n  <svg viewBox=\"0 0 ${w} ${h}\" width=\"100%\" height=\"110\">\n    <rect x=\"0\" y=\"0\" width=\"${w}\" height=\"${h}\" fill=\"white\"/>\n    ${gridLines}\n    <path d=\"${pathD}\" fill=\"none\" stroke=\"#2e7d32\" stroke-width=\"2\"/>\n    ${circles}\n    ${xLabels}\n  </svg>`;
+
+      const texturePanelHtml = `\n  <div class=\"panel\">\n    <div class=\"section-header\">Soil Texture</div>\n    <div class=\"info-row\">\n      <div class=\"info-label\">Classification</div>\n      <div class=\"info-value\">${soilData.soilTexture}</div>\n    </div>\n  </div>\n`;
 
       const html = `
         <!DOCTYPE html>
@@ -122,6 +151,9 @@ const ReportScreen = () => {
               color: #1a1a1a;
               background: #fff;
               line-height: 1.4;
+              min-height: 100vh;
+              display: flex;
+              flex-direction: column;
             }
             .header { 
               text-align: center; 
@@ -168,24 +200,25 @@ const ReportScreen = () => {
               display: grid;
               grid-template-columns: 260px 1fr;
               gap: 10px;
+              flex: 1;
             }
             .left-column {
               display: flex;
               flex-direction: column;
-              gap: 6px;
+              gap: 10px;
             }
             .panel {
               background: #fff;
               border: 1px solid #ddd;
               border-radius: 4px;
-              padding: 8px;
+              padding: 12px;
               page-break-inside: avoid;
             }
             .section-header {
               font-size: 9px;
               font-weight: 700;
               color: #2e7d32;
-              margin-bottom: 5px;
+              margin-bottom: 6px;
               text-transform: uppercase;
               letter-spacing: 0.8px;
               border-bottom: 2px solid #2e7d32;
@@ -193,7 +226,7 @@ const ReportScreen = () => {
             }
             .soil-image {
               width: 100%;
-              height: 120px;
+              height: 180px;
               object-fit: cover;
               border-radius: 3px;
               border: 1px solid #ccc;
@@ -202,7 +235,7 @@ const ReportScreen = () => {
             .info-row {
               display: flex;
               justify-content: space-between;
-              padding: 4px 0;
+              padding: 6px 0;
               border-bottom: 1px solid #eee;
             }
             .info-row:last-child {
@@ -216,7 +249,7 @@ const ReportScreen = () => {
               letter-spacing: 0.5px;
             }
             .info-value {
-              font-size: 9px;
+              font-size: 10px;
               color: #1a1a1a;
               font-weight: 600;
             }
@@ -229,7 +262,7 @@ const ReportScreen = () => {
               background: #f5f5f5;
               padding: 4px 5px;
               text-align: left;
-              font-size: 8px;
+              font-size: 9px;
               font-weight: 700;
               color: #555;
               text-transform: uppercase;
@@ -237,8 +270,8 @@ const ReportScreen = () => {
               letter-spacing: 0.5px;
             }
             .nutrient-table td {
-              padding: 5px 5px;
-              font-size: 9px;
+              padding: 7px 6px;
+              font-size: 10px;
               border: 1px solid #ddd;
               color: #1a1a1a;
             }
@@ -305,19 +338,19 @@ const ReportScreen = () => {
               color: #b71c1c;
             }
             .footer {
-              margin-top: 6px;
-              padding-top: 4px;
+              margin-top: auto;
+              padding-top: 8px;
               border-top: 1px solid #ddd;
               text-align: center;
               color: #666;
-              font-size: 7px;
-              line-height: 1.3;
+              font-size: 8px;
+              line-height: 1.4;
             }
             .report-id {
-              font-size: 6px;
+              font-size: 7px;
               color: #999;
               text-align: center;
-              margin-top: 2px;
+              margin-top: 3px;
               font-family: 'Courier New', monospace;
               letter-spacing: 1px;
             }
@@ -345,16 +378,10 @@ const ReportScreen = () => {
             <div class="left-column">
               <div class="panel">
                 <div class="section-header">Soil Sample Image</div>
-                ${imageSrc ? `<img src="${imageSrc}" class="soil-image" alt="Soil Sample" />` : `<div style="height: 120px; background: #f0f0f0; border-radius: 3px; display: flex; align-items: center; justify-content: center; color: #999; font-size: 8px; border: 1px dashed #ccc;">No Image</div>`}
+                ${imageSrc ? `<img src="${imageSrc}" class="soil-image" alt="Soil Sample" />` : `<div style="height: 180px; background: #f0f0f0; border-radius: 3px; display: flex; align-items: center; justify-content: center; color: #999; font-size: 10px; border: 1px dashed #ccc;">No Image</div>`}
               </div>
 
-              <div class="panel">
-                <div class="section-header">Soil Texture</div>
-                <div class="info-row">
-                  <div class="info-label">Classification</div>
-                  <div class="info-value">${soilData.soilTexture}</div>
-                </div>
-              </div>
+              ${texturePanelHtml}
 
               <div class="panel">
                 <div class="section-header">Soil Nutrients</div>
@@ -384,6 +411,7 @@ const ReportScreen = () => {
                     </tr>
                   </tbody>
                 </table>
+                <div style="margin-top: 4px;">${chartSvg}</div>
               </div>
 
               <div class="panel">

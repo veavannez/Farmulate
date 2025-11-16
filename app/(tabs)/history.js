@@ -313,7 +313,7 @@ export default function HistoryScreen() {
           {item.soilImage && <Image source={{ uri: item.soilImage }} style={styles.thumbnail} />}
           <View style={{ flex: 1 }}>
             <Text style={[styles.cardTitle, isSelected && styles.textWhite]}>
-              {item.potName} | {item.recommendedCrop} | {item.prediction}
+              {item.potName} | {item.recommendedCrop === 'no_crop' ? 'No Crop' : item.recommendedCrop} | {item.prediction === 'No soil detected' ? 'No Soil Detected' : item.prediction}
             </Text>
             <Text style={[styles.cardSubtitle, isSelected && styles.textWhite]}>{format(date, "PPPpp")}</Text>
             <Text style={[styles.cardNutrients, isSelected && styles.textWhite]}>
