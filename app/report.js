@@ -81,13 +81,26 @@ const ReportScreen = () => {
           console.warn('PDF image embed failed; falling back to placeholder:', imgErr?.message || imgErr);
         }
       }
-      const phCategory = getPhCategory(parseFloat(soilData.phLevel));
-      const isNoCrop = (soilData.recommendedCrop || "").toString().toLowerCase() === "no_crop" || soilData.recommendedCrop === "No suitable crops";
+      // Safely extract and validate all data
+      const phLevel = parseFloat(soilData.phLevel) || 7.0;
+      const phCategory = getPhCategory(phLevel);
+      const recommendedCrop = soilData.recommendedCrop || "No recommendation";
+      const isNoCrop = recommendedCrop.toString().toLowerCase() === "no_crop" || recommendedCrop === "No suitable crops";
       const confPct = typeof soilData.confidence === 'number' ? Math.round(soilData.confidence * 100) : null;
       const recBoxClass = `recommendation-box${isNoCrop ? ' red' : ''}`;
       const recValueClass = `rec-value${isNoCrop ? ' red' : ''}`;
-      const recText = isNoCrop ? 'No crop recommended' : soilData.recommendedCrop;
+      const recText = isNoCrop ? 'No crop recommended' : recommendedCrop;
       const confidenceHtml = confPct !== null ? `<div class="confidence">Confidence: ${confPct}%</div>` : '';
+      
+      // Safely handle companions and avoid arrays
+      const companions = Array.isArray(soilData.companions) ? soilData.companions : [];
+      const avoids = Array.isArray(soilData.avoid) ? soilData.avoid : [];
+      const companionsHtml = companions.length > 0 
+        ? companions.slice(0, 5).map(c => `<li class="good-companion">${c || 'Unknown'}</li>`).join('')
+        : '<li style="color: #999;">None identified</li>';
+      const avoidsHtml = avoids.length > 0
+        ? avoids.slice(0, 5).map(a => `<li class="bad-companion">${a || 'Unknown'}</li>`).join('')
+        : '<li style="color: #999;">None identified</li>';
 
       const html = `
         <!DOCTYPE html>
@@ -398,13 +411,13 @@ const ReportScreen = () => {
                   <div class="companion-column">
                     <h4>Compatible Crops</h4>
                     <ul class="companion-list">
-                      ${soilData.companions.slice(0, 5).map(c => `<li class="good-companion">${c}</li>`).join('')}
+                      ${companionsHtml}
                     </ul>
                   </div>
                   <div class="companion-column">
                     <h4>Incompatible Crops</h4>
                     <ul class="companion-list">
-                      ${soilData.avoid.slice(0, 5).map(a => `<li class="bad-companion">${a}</li>`).join('')}
+                      ${avoidsHtml}
                     </ul>
                   </div>
                 </div>
@@ -423,14 +436,21 @@ const ReportScreen = () => {
 
       const { uri } = await Print.printToFileAsync({ html });
 
+      // Validate URI returned from Print
+      if (!uri) {
+        throw new Error('PDF generation failed: Print.printToFileAsync returned null URI. HTML may be invalid.');
+      }
+
       // Build industry-standard filename: Farmulate_Report_<pot>_<YYYY-MM-DD>.pdf
       const safePot = (soilData.potName || 'Unnamed Pot').toString().replace(/[^a-z0-9_\-]+/gi, '_').replace(/^_+|_+$/g, '');
       const dateStr = new Date(soilData.generatedAt || Date.now()).toISOString().slice(0, 10);
       const finalName = `Farmulate_Report_${safePot}_${dateStr}.pdf`;
       const destUri = `${FileSystem.documentDirectory}${finalName}`;
 
+      let finalUri = uri;
       try {
         await FileSystem.moveAsync({ from: uri, to: destUri });
+        finalUri = destUri;
       } catch (moveErr) {
         // Fallback: if move fails, keep original uri but still use naming in share dialog
         console.warn('Could not move PDF to documents directory:', moveErr?.message || moveErr);
@@ -438,7 +458,7 @@ const ReportScreen = () => {
       
       const canShare = await Sharing.isAvailableAsync();
       if (canShare) {
-        await Sharing.shareAsync(destUri || uri, {
+        await Sharing.shareAsync(finalUri, {
           mimeType: 'application/pdf',
           dialogTitle: finalName,
           UTI: 'com.adobe.pdf'
