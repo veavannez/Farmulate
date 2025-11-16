@@ -64,21 +64,26 @@ const ReportScreen = () => {
     
     setPrinting(true);
     try {
-      // Prepare image source: embed as base64 to avoid remote-image failures in WebView/pdf
+      // Prepare image source: embed as base64 to ensure it displays in PDF
       let imageSrc = null;
       if (soilData.soilImage) {
         try {
           if (soilData.soilImage.startsWith('http')) {
-            const tmpPath = `${FileSystem.cacheDirectory}soil_report_image.jpg`;
-            const dl = await FileSystem.downloadAsync(soilData.soilImage, tmpPath);
-            const b64 = await FileSystem.readAsStringAsync(dl.uri, { encoding: FileSystem.EncodingType.Base64 });
-            imageSrc = `data:image/jpeg;base64,${b64}`;
+            // Fetch and convert to base64 data URL
+            const response = await fetch(soilData.soilImage);
+            const blob = await response.blob();
+            const reader = new FileReader();
+            imageSrc = await new Promise((resolve, reject) => {
+              reader.onloadend = () => resolve(reader.result);
+              reader.onerror = reject;
+              reader.readAsDataURL(blob);
+            });
           } else if (soilData.soilImage.startsWith('file://')) {
             const b64 = await FileSystem.readAsStringAsync(soilData.soilImage, { encoding: FileSystem.EncodingType.Base64 });
             imageSrc = `data:image/jpeg;base64,${b64}`;
           }
         } catch (imgErr) {
-          console.warn('PDF image embed failed; falling back to placeholder:', imgErr?.message || imgErr);
+          console.warn('PDF image embed failed; using placeholder:', imgErr?.message || imgErr);
         }
       }
       // Safely extract and validate all data
@@ -110,121 +115,121 @@ const ReportScreen = () => {
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
-            @page { size: A4; margin: 1in; }
+            @page { size: A4; margin: 0.5in; }
             body { 
               font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-              padding: 0;
+              padding: 8px;
               color: #1a1a1a;
               background: #fff;
-              line-height: 1.5;
+              line-height: 1.4;
             }
             .header { 
               text-align: center; 
-              margin-bottom: 16px;
+              margin-bottom: 8px;
               border-bottom: 3px solid #2e7d32;
-              padding-bottom: 14px;
+              padding-bottom: 6px;
             }
             .logo-text {
-              font-size: 24px;
+              font-size: 18px;
               font-weight: bold;
               color: #2e7d32;
-              margin-bottom: 4px;
+              margin-bottom: 2px;
               letter-spacing: 1px;
             }
             .subtitle { 
               color: #555; 
-              font-size: 13px;
+              font-size: 10px;
               font-style: italic;
               font-weight: 500;
             }
             .meta-bar {
               background: #f8f8f8;
               border: 1px solid #ddd;
-              padding: 12px 18px;
+              padding: 6px 10px;
               border-radius: 4px;
-              margin-bottom: 18px;
+              margin-bottom: 8px;
               display: flex;
               justify-content: space-between;
               align-items: center;
             }
             .meta-label {
-              font-size: 10px;
+              font-size: 8px;
               color: #666;
               text-transform: uppercase;
               letter-spacing: 0.5px;
-              margin-bottom: 2px;
+              margin-bottom: 1px;
             }
             .meta-value {
-              font-size: 13px;
+              font-size: 10px;
               font-weight: 600;
               color: #1a1a1a;
             }
             .content-grid {
               display: grid;
-              grid-template-columns: 350px 1fr;
-              gap: 18px;
+              grid-template-columns: 260px 1fr;
+              gap: 10px;
             }
             .left-column {
               display: flex;
               flex-direction: column;
-              gap: 14px;
+              gap: 6px;
             }
             .panel {
               background: #fff;
               border: 1px solid #ddd;
               border-radius: 4px;
-              padding: 14px;
+              padding: 8px;
               page-break-inside: avoid;
             }
             .section-header {
-              font-size: 12px;
+              font-size: 9px;
               font-weight: 700;
               color: #2e7d32;
-              margin-bottom: 10px;
+              margin-bottom: 5px;
               text-transform: uppercase;
               letter-spacing: 0.8px;
               border-bottom: 2px solid #2e7d32;
-              padding-bottom: 6px;
+              padding-bottom: 3px;
             }
             .soil-image {
               width: 100%;
-              height: 180px;
+              height: 120px;
               object-fit: cover;
               border-radius: 3px;
               border: 1px solid #ccc;
-              margin-bottom: 10px;
+              margin-bottom: 0;
             }
             .info-row {
               display: flex;
               justify-content: space-between;
-              padding: 8px 0;
+              padding: 4px 0;
               border-bottom: 1px solid #eee;
             }
             .info-row:last-child {
               border-bottom: none;
             }
             .info-label {
-              font-size: 11px;
+              font-size: 8px;
               color: #666;
               font-weight: 600;
               text-transform: uppercase;
               letter-spacing: 0.5px;
             }
             .info-value {
-              font-size: 12px;
+              font-size: 9px;
               color: #1a1a1a;
               font-weight: 600;
             }
             .nutrient-table {
               width: 100%;
               border-collapse: collapse;
-              margin-top: 8px;
+              margin-top: 4px;
             }
             .nutrient-table th {
               background: #f5f5f5;
-              padding: 8px;
+              padding: 4px 5px;
               text-align: left;
-              font-size: 10px;
+              font-size: 8px;
               font-weight: 700;
               color: #555;
               text-transform: uppercase;
@@ -232,8 +237,8 @@ const ReportScreen = () => {
               letter-spacing: 0.5px;
             }
             .nutrient-table td {
-              padding: 10px 8px;
-              font-size: 12px;
+              padding: 5px 5px;
+              font-size: 9px;
               border: 1px solid #ddd;
               color: #1a1a1a;
             }
@@ -247,34 +252,34 @@ const ReportScreen = () => {
             }
             .nutrient-unit {
               text-align: center;
-              font-size: 10px;
+              font-size: 7px;
               color: #666;
             }
-            .recommendation-box { background: #e8f5e9; border-left: 4px solid #2e7d32; padding: 12px; margin-top: 10px; }
+            .recommendation-box { background: #e8f5e9; border-left: 4px solid #2e7d32; padding: 6px; margin-top: 5px; }
             .recommendation-box.red { background: #ffebee; border-left-color: #c62828; }
             .rec-label {
-              font-size: 10px;
+              font-size: 8px;
               color: #555;
               text-transform: uppercase;
               letter-spacing: 0.5px;
-              margin-bottom: 4px;
+              margin-bottom: 2px;
             }
             .rec-value {
-              font-size: 15px;
+              font-size: 11px;
               font-weight: 700;
               color: #2e7d32;
             }
             .rec-value.red { color: #c62828; }
-            .confidence { font-size: 11px; color: #555; margin-top: 6px; font-weight: 600; }
+            .confidence { font-size: 8px; color: #555; margin-top: 3px; font-weight: 600; }
             .companion-grid {
               display: grid;
               grid-template-columns: 1fr 1fr;
-              gap: 14px;
-              margin-top: 10px;
+              gap: 6px;
+              margin-top: 5px;
             }
             .companion-column h4 {
-              font-size: 11px;
-              margin-bottom: 8px;
+              font-size: 8px;
+              margin-bottom: 4px;
               color: #1a1a1a;
               font-weight: 700;
               text-transform: uppercase;
@@ -284,12 +289,12 @@ const ReportScreen = () => {
               list-style: none;
             }
             .companion-list li {
-              padding: 6px 10px;
-              margin-bottom: 4px;
-              font-size: 11px;
+              padding: 3px 5px;
+              margin-bottom: 2px;
+              font-size: 8px;
               border-left: 3px solid;
               background: #f9f9f9;
-              line-height: 1.4;
+              line-height: 1.3;
             }
             .good-companion {
               border-color: #2e7d32;
@@ -300,19 +305,19 @@ const ReportScreen = () => {
               color: #b71c1c;
             }
             .footer {
-              margin-top: 16px;
-              padding-top: 10px;
-              border-top: 2px solid #ddd;
+              margin-top: 6px;
+              padding-top: 4px;
+              border-top: 1px solid #ddd;
               text-align: center;
               color: #666;
-              font-size: 9px;
-              line-height: 1.4;
+              font-size: 7px;
+              line-height: 1.3;
             }
             .report-id {
-              font-size: 9px;
+              font-size: 6px;
               color: #999;
               text-align: center;
-              margin-top: 4px;
+              margin-top: 2px;
               font-family: 'Courier New', monospace;
               letter-spacing: 1px;
             }
@@ -340,7 +345,7 @@ const ReportScreen = () => {
             <div class="left-column">
               <div class="panel">
                 <div class="section-header">Soil Sample Image</div>
-                ${imageSrc ? `<img src="${imageSrc}" class="soil-image" alt="Soil Sample" />` : `<div style="height: 180px; background: #f0f0f0; border-radius: 3px; display: flex; align-items: center; justify-content: center; color: #999; font-size: 11px; border: 1px dashed #ccc;">No Image Available</div>`}
+                ${imageSrc ? `<img src="${imageSrc}" class="soil-image" alt="Soil Sample" />` : `<div style="height: 120px; background: #f0f0f0; border-radius: 3px; display: flex; align-items: center; justify-content: center; color: #999; font-size: 8px; border: 1px dashed #ccc;">No Image</div>`}
               </div>
 
               <div class="panel">
@@ -405,7 +410,7 @@ const ReportScreen = () => {
                 </div>
               </div>
 
-              <div class="panel" style="margin-top: 14px;">
+              <div class="panel" style="margin-top: 6px;">
                 <div class="section-header">Companion Planting</div>
                 <div class="companion-grid">
                   <div class="companion-column">
@@ -650,8 +655,8 @@ const ReportScreen = () => {
               resizeMode="cover"
             />
           )}
-          <View style={styles.tagGreen}>
-            <Text style={styles.tagText}>Soil Texture: {soilData.soilTexture}</Text>
+          <View style={(soilData.soilTexture || "").toString().toLowerCase().includes('no soil') || (soilData.soilTexture || "").toString().toLowerCase().includes('not detected') ? styles.tagRed : styles.tagGreen}>
+            <Text style={styles.tagText}>Soil Texture: {soilData.soilTexture || 'Not detected'}</Text>
           </View>
         </View>
 
@@ -784,6 +789,7 @@ const styles = StyleSheet.create({
   card: { backgroundColor: "#fff", borderRadius: 12, padding: 16, marginBottom: 16 },
   image: { width: "100%", height: 150, borderRadius: 12, marginBottom: 10 },
   tagGreen: { backgroundColor: "#388e3c", padding: 8, borderRadius: 8, alignItems: "center" },
+  tagRed: { backgroundColor: "#c62828", padding: 8, borderRadius: 8, alignItems: "center" },
   tagText: { color: "#fff", fontWeight: "600" },
   nutrientGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", marginTop: 12 },
   nutrientBox: { width: "48%", borderRadius: 12, padding: 12, marginBottom: 12, alignItems: "center" },
