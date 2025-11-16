@@ -188,6 +188,8 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
     user_id = verify_supabase_token(token)
 
     # ------------ YOLO INFERENCE ------------
+    soil_encoded = None  # Initialize for later use
+    
     try:
         response = requests.get(req.imageUrl, timeout=15)
         response.raise_for_status()
@@ -242,14 +244,21 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
             soil_texture = "Loamy"
         
         # Encode soil texture for XGBoost
-        soil_encoded = soil_encoder.transform([[soil_texture]]).toarray()[0]
+        soil_encoded_result = soil_encoder.transform([[soil_texture]])
+        # Handle both sparse matrix and dense array
+        if hasattr(soil_encoded_result, 'toarray'):
+            soil_encoded = soil_encoded_result.toarray()[0]
+        else:
+            soil_encoded = soil_encoded_result[0]
 
     except Exception as e:
+        print(f"❌ YOLO prediction error: {e}")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"YOLO prediction failed: {e}")
 
     # ------------ NPK Conversion ------------
     try:
-        N, P, K = convert_mgkg_to_kgha(req.N, req.P, req.K, soil_texture)
+        N, P, K = convert_mgkg_to_kgha(req.N, req.P, req.K, soil_texture.lower())
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"NPK conversion failed: {e}")
 
