@@ -130,6 +130,9 @@ with open(base_dir / "model.pkl", "rb") as f:
 with open(base_dir / "label_encoder.pkl", "rb") as f:
     le_label = pickle.load(f)
 
+with open(base_dir / "soil_encoder.pkl", "rb") as f:
+    soil_encoder = pickle.load(f)
+
 data = pd.read_csv(base_dir / "reccocrop.csv")
 
 records_df = pd.read_excel(base_dir / "avoidcrop.xlsx", engine="openpyxl")
@@ -149,7 +152,7 @@ avoid_crops = {
 # ===============================
 # Detection thresholds
 # ===============================
-CROP_TOP_PROB_THRESHOLD = 0.7
+CROP_TOP_PROB_THRESHOLD = 0.7 
 NPK_MIN = 0
 NPK_MAX = 500
 PH_MIN = 3.5
@@ -231,7 +234,15 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
                 "converted_values": {"N": N, "P": P, "K": K, "ph": req.ph}
             }
 
-        soil_texture = raw_label.replace("_Trained", "").lower()
+        soil_texture = raw_label.replace("_Trained", "").capitalize()
+        
+        # Validate soil_texture against encoder categories
+        if soil_texture not in soil_encoder.categories_[0]:
+            print(f"⚠️ Soil texture '{soil_texture}' not in encoder categories, defaulting to Loamy")
+            soil_texture = "Loamy"
+        
+        # Encode soil texture for XGBoost
+        soil_encoded = soil_encoder.transform([[soil_texture]]).toarray()[0]
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"YOLO prediction failed: {e}")
@@ -254,14 +265,21 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
     else:
         # ------------ XGBOOST PREDICTION (NEW LOGIC) ------------
         try:
-            input_features = np.array([[N, P, K, req.ph]])
-            probs = xgb_model.predict_proba(input_features)[0]
+            # Combine NPK, pH, and soil_encoded into 8 features
+            input_features = np.hstack([[N, P, K, req.ph], soil_encoded])
+            probs = xgb_model.predict_proba([input_features])[0]
 
             top_idx = int(np.argmax(probs))
             top_prob = float(probs[top_idx])
 
             pred_crop = le_label.inverse_transform([top_idx])[0].strip().lower()
             crop_confidence = top_prob
+
+            print(f"🌾 Top 3 predictions:")
+            top3_indices = np.argsort(probs)[-3:][::-1]
+            for i, idx in enumerate(top3_indices, 1):
+                crop_name = le_label.inverse_transform([idx])[0]
+                print(f"  {i}. {crop_name}: {probs[idx]:.2%}")
 
             if top_prob < CROP_TOP_PROB_THRESHOLD:
                 recommended_crop = "no_crop"
@@ -274,6 +292,7 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
 
         except Exception as e:
             print("❌ XGBoost fallback:", e)
+            traceback.print_exc()
             recommended_crop = "no_crop"
             companions = []
             avoids = []
