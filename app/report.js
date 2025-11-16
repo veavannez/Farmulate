@@ -1,7 +1,7 @@
 // app/report.js
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import * as Print from 'expo-print';
 import * as FileSystem from 'expo-file-system';
+import * as Print from 'expo-print';
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Sharing from 'expo-sharing';
 import { useEffect, useState } from "react";
@@ -64,6 +64,23 @@ const ReportScreen = () => {
     
     setPrinting(true);
     try {
+      // Prepare image source: embed as base64 to avoid remote-image failures in WebView/pdf
+      let imageSrc = null;
+      if (soilData.soilImage) {
+        try {
+          if (soilData.soilImage.startsWith('http')) {
+            const tmpPath = `${FileSystem.cacheDirectory}soil_report_image.jpg`;
+            const dl = await FileSystem.downloadAsync(soilData.soilImage, tmpPath);
+            const b64 = await FileSystem.readAsStringAsync(dl.uri, { encoding: FileSystem.EncodingType.Base64 });
+            imageSrc = `data:image/jpeg;base64,${b64}`;
+          } else if (soilData.soilImage.startsWith('file://')) {
+            const b64 = await FileSystem.readAsStringAsync(soilData.soilImage, { encoding: FileSystem.EncodingType.Base64 });
+            imageSrc = `data:image/jpeg;base64,${b64}`;
+          }
+        } catch (imgErr) {
+          console.warn('PDF image embed failed; falling back to placeholder:', imgErr?.message || imgErr);
+        }
+      }
       const phCategory = getPhCategory(parseFloat(soilData.phLevel));
       const isNoCrop = (soilData.recommendedCrop || "").toString().toLowerCase() === "no_crop" || soilData.recommendedCrop === "No suitable crops";
       const confPct = typeof soilData.confidence === 'number' ? Math.round(soilData.confidence * 100) : null;
@@ -310,7 +327,7 @@ const ReportScreen = () => {
             <div class="left-column">
               <div class="panel">
                 <div class="section-header">Soil Sample Image</div>
-                ${soilData.soilImage ? `<img src="${soilData.soilImage}" class="soil-image" alt="Soil Sample" />` : `<div style="height: 180px; background: #f0f0f0; border-radius: 3px; display: flex; align-items: center; justify-content: center; color: #999; font-size: 11px; border: 1px dashed #ccc;">No Image Available</div>`}
+                ${imageSrc ? `<img src="${imageSrc}" class="soil-image" alt="Soil Sample" />` : `<div style="height: 180px; background: #f0f0f0; border-radius: 3px; display: flex; align-items: center; justify-content: center; color: #999; font-size: 11px; border: 1px dashed #ccc;">No Image Available</div>`}
               </div>
 
               <div class="panel">
