@@ -68,7 +68,7 @@ export default function TabsLayout() {
             height: 65,
             borderTopWidth: 0.3,
             borderTopColor: "#ccc",
-            opacity: isProcessing ? 0.6 : 1,
+            // Keep visual style unchanged while processing; clicks are blocked via listeners
           },
         }}
       >
@@ -94,6 +94,11 @@ export default function TabsLayout() {
               // Prevent navigating while processing
               listeners: {
                 tabPress: (e) => {
+                  if (isProcessing) {
+                    e.preventDefault();
+                  }
+                },
+                tabLongPress: (e) => {
                   if (isProcessing) {
                     e.preventDefault();
                   }
