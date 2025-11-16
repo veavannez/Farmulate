@@ -1,14 +1,12 @@
-import React from "react";
-import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { Tabs } from "expo-router";
 import {
-  Dimensions,
-  Image,
-  Platform,
-  SafeAreaView,
-  StyleSheet,
-  Text,
-  View,
+    Dimensions,
+    Image,
+    SafeAreaView,
+    StyleSheet,
+    Text,
+    View
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSoil } from "../../context/soilContext";

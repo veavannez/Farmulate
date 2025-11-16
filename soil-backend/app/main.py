@@ -150,7 +150,6 @@ avoid_crops = {
 # ===============================
 # Detection thresholds
 # ===============================
-SOIL_CONF_THRESHOLD = 0.5  # Raised from 0.5 for stricter detection
 CROP_CONF_THRESHOLD = 0.5  # legacy threshold (kept for reference)
 CROP_TOP_PROB_THRESHOLD = 0.7  # require >= 0.70 top class probability
 
@@ -249,55 +248,15 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
             tmp.write(response.content)
             tmp_path = tmp.name
 
-        # Pre-filter: Check if image looks like soil
-        is_soil, reason = is_likely_soil(tmp_path)
-        print(f"🔍 Pre-filter: {reason}")
-        
-        if not is_soil:
-            # Failed pre-filter, return "No Soil Detected"
-            soil_texture = "No soil detected"
-            recommended_crop = "no_crop"
-            companions = []
-            avoids = []
-
-            try:
-                supabase.table("soil_results").insert({
-                    "user_id": user_id,
-                    "pot_name" : req.pot_name,
-                    "image_name": req.image_name or os.path.basename(req.imageUrl),
-                    "image_url": req.imageUrl,
-                    "prediction": f"{soil_texture} ({reason})",
-                    "recommended_crop": recommended_crop,
-                    "n": req.N,
-                    "p": req.P,
-                    "k": req.K,
-                    "ph_level": req.ph,
-                    "companions": companions,
-                    "avoids": avoids,
-                    "crop_confidence": None,
-                    "created_at": datetime.utcnow().isoformat()
-                }).execute()
-            except Exception as e:
-                print("⚠️ Supabase insert (pre-filter reject) failed:", e)
-
-            return {
-                "soil_texture": soil_texture,
-                "recommended_crop": recommended_crop,
-                "companions": companions,
-                "avoid": avoids,
-                "confidence": None,
-                "converted_values": {"N": req.N, "P": req.P, "K": req.K, "ph": req.ph}
-            }
-
         results = yolo_model.predict(tmp_path)
         result = results[0]
         
         # Extract confidence for logging
         yolo_confidence = float(getattr(result.probs, "top1conf", 0.0)) if getattr(result, "probs", None) else 0.0
-        print(f"🔍 YOLO Confidence: {yolo_confidence:.3f} (threshold: {SOIL_CONF_THRESHOLD})")
+        print(f"🔍 YOLO Confidence: {yolo_confidence:.3f}")
         
-        # If model is unsure (no class above threshold), short-circuit with "No Soil Detected"
-        if (getattr(result, "probs", None) is None) or (yolo_confidence < SOIL_CONF_THRESHOLD):
+        # If model returned no probabilities, short-circuit with "No Soil Detected"
+        if getattr(result, "probs", None) is None:
             soil_texture = "No soil detected"
             recommended_crop = "no_crop"
             companions = []
