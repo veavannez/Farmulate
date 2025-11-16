@@ -359,6 +359,14 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
                 if pred_encoded is not None and pred_encoded < len(pred_proba_row):
                     max_proba = float(pred_proba_row[pred_encoded])
                     crop_confidence = max_proba
+                    
+                    # Show top 3 crop recommendations with confidence scores
+                    top_3_indices = np.argsort(pred_proba_row)[-3:][::-1]
+                    print("🌾 Top 3 Crop Recommendations:")
+                    for rank, idx in enumerate(top_3_indices, 1):
+                        crop_name = le_label.inverse_transform([idx])[0]
+                        confidence = pred_proba_row[idx]
+                        print(f"   {rank}. {crop_name}: {confidence:.3f} ({confidence*100:.1f}%)")
                 else:
                     crop_confidence = None
             except Exception as proba_err:
