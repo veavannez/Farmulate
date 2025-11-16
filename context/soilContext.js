@@ -8,6 +8,7 @@ const SoilContext = createContext();
 export const SoilProvider = ({ children }) => {
   const [soilData, setSoilData] = useState(null); // currently selected report
   const [history, setHistory] = useState([]);     // all saved reports
+  const [isProcessing, setIsProcessing] = useState(false); // global busy flag
 
   // Load history from storage on startup
   useEffect(() => {
@@ -90,6 +91,8 @@ export const SoilProvider = ({ children }) => {
         history,
         addToHistory,
         clearHistory,
+        isProcessing,
+        setIsProcessing,
       }}
     >
       {children}

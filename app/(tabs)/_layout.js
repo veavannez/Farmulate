@@ -11,10 +11,12 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useSoil } from "../../context/soilContext";
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const screenWidth = Dimensions.get("window").width;
+  const { isProcessing } = useSoil();
 
   const logoSize =
     screenWidth < 400 ? { width: 120, height: 50 } : { width: 50, height: 60 };
@@ -58,19 +60,19 @@ export default function TabsLayout() {
 
       {/* Tabs */}
       <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarShowLabel: false,
-        tabBarActiveTintColor: "#2e7d32",
-        tabBarInactiveTintColor: "#555",
-        tabBarStyle: {
-          backgroundColor: "#fff",   // normal bar color
-          height: 65,
-          borderTopWidth: 0.3,
-          borderTopColor: "#ccc",
-          // remove position, left, right, borderRadius, shadow
-        },
-      }}
+        screenOptions={{
+          headerShown: false,
+          tabBarShowLabel: false,
+          tabBarActiveTintColor: "#2e7d32",
+          tabBarInactiveTintColor: "#555",
+          tabBarStyle: {
+            backgroundColor: "#fff",
+            height: 65,
+            borderTopWidth: 0.3,
+            borderTopColor: "#ccc",
+            opacity: isProcessing ? 0.6 : 1,
+          },
+        }}
       >
         {TABS.map((tab) => (
           <Tabs.Screen
@@ -90,6 +92,14 @@ export default function TabsLayout() {
                   );
                 }
                 return renderTab(tab, color);
+              },
+              // Prevent navigating while processing
+              listeners: {
+                tabPress: (e) => {
+                  if (isProcessing) {
+                    e.preventDefault();
+                  }
+                },
               },
             }}
           />

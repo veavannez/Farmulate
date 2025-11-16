@@ -37,7 +37,7 @@ const MainScreen = () => {
   const [soilImage, setSoilImage] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  const { setSoilData, setMappedSoilData } = useSoil();
+  const { setSoilData, setMappedSoilData, setIsProcessing } = useSoil();
   const router = useRouter();
 
   // Picker display color: white placeholder, theme-aware selection
@@ -263,6 +263,7 @@ useEffect(() => {
   // 🌾 Handle FARMULATE
   const handleFarmulate = async () => {
   setLoading(true);
+  setIsProcessing(true);
   try {
     // 1️⃣ Validate fields
     const missing = [];
@@ -371,6 +372,7 @@ useEffect(() => {
     Alert.alert("Error", err.message || "Something went wrong.");
   } finally {
     setLoading(false);
+    setIsProcessing(false);
   }
 };
 
