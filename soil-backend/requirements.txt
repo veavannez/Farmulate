@@ -12,3 +12,4 @@ supabase
 python-jose
 requests
 opencv-python-headless
+xgboost==1.7.6
