@@ -15,7 +15,7 @@ import asyncio
 # ===============================
 # Load Environment Variables
 # ===============================
-env_path = Path(__file__).resolve().parents[1] / ".env"
+env_path = Path(_file_).resolve().parents[1] / ".env"
 load_dotenv(dotenv_path=env_path)
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -120,7 +120,7 @@ def verify_supabase_token(token: str) -> str:
 # ===============================
 # Load Models & Data
 # ===============================
-base_dir = Path(__file__).resolve().parent / "model"
+base_dir = Path(_file_).resolve().parent / "model"
 
 yolo_model = YOLO(str(base_dir / "best.pt"))
 
@@ -131,7 +131,7 @@ with open(base_dir / "label_encoder.pkl", "rb") as f:
     le_label = pickle.load(f)
 
 with open(base_dir / "soil_encoder.pkl", "rb") as f:
-    soil_encoder = pickle.load(f)
+    soil_encoder = pickle.load(f)  # OneHotEncoder
 
 data = pd.read_csv(base_dir / "reccocrop.csv")
 
@@ -199,8 +199,7 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
     token = authorization.split(" ")[1]
     user_id = verify_supabase_token(token)
 
-    # ------------ YOLO INFERENCE ------------
-    soil_encoded = None  # Initialize for later use
+    soil_encoded = None
     
     try:
         response = requests.get(req.imageUrl, timeout=15)
@@ -215,58 +214,26 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
         if getattr(result, "probs", None) is None:
             soil_texture = "No soil detected"
             recommended_crop = "no_crop"
-            companions = []
-            avoids = []
-            crop_confidence = None
-            N, P, K = req.N, req.P, req.K
             return {
                 "soil_texture": soil_texture,
                 "recommended_crop": recommended_crop,
-                "companions": companions,
-                "avoid": avoids,
-                "confidence": crop_confidence,
-                "converted_values": {"N": N, "P": P, "K": K, "ph": req.ph}
+                "companions": [],
+                "avoid": [],
+                "confidence": None,
+                "converted_values": {"N": req.N, "P": req.P, "K": req.K, "ph": req.ph}
             }
 
         top_idx = int(result.probs.top1)
         raw_label = result.names[top_idx]
-        normalized_label = raw_label.strip().lower().replace(" ", "_")
 
-        if normalized_label in {"not_soil", "no_soil", "no_soil_detected"}:
-            soil_texture = "No soil detected"
-            recommended_crop = "no_crop"
-            companions = []
-            avoids = []
-            crop_confidence = None
-            N, P, K = req.N, req.P, req.K
-            return {
-                "soil_texture": soil_texture,
-                "recommended_crop": recommended_crop,
-                "companions": companions,
-                "avoid": avoids,
-                "confidence": crop_confidence,
-                "converted_values": {"N": N, "P": P, "K": K, "ph": req.ph}
-            }
-
-        # Normalize YOLO label and map explicitly to encoder categories
+        # Normalize YOLO label to match encoder
         clean_label = raw_label.replace("_Trained", "").strip()
-        soil_texture = YOLO_TO_ENCODER.get(clean_label, YOLO_TO_ENCODER.get(clean_label.lower(), None))
-        if not soil_texture:
-            low = clean_label.lower()
-            if "clay" in low:
-                soil_texture = "Clay"
-            elif "loam" in low:
-                soil_texture = "Loamy"
-            elif "sand" in low:
-                soil_texture = "Sandy"
-            elif "silt" in low:
-                soil_texture = "Silt"
-            else:
-                soil_texture = "Loamy"
+        soil_texture = YOLO_TO_ENCODER.get(clean_label, clean_label.capitalize())
+        if soil_texture not in soil_encoder.categories_[0]:
+            soil_texture = "Loamy"  # default fallback
 
-        # One-hot encode soil texture for XGBoost
+        # Encode soil texture
         soil_encoded_result = soil_encoder.transform([[soil_texture]])
-        # Handle both sparse matrix and dense array
         if hasattr(soil_encoded_result, 'toarray'):
             soil_encoded = soil_encoded_result.toarray()[0]
         else:
@@ -277,52 +244,35 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"YOLO prediction failed: {e}")
 
-    # ------------ NPK Conversion ------------
+    # Convert NPK
     try:
         N, P, K = convert_mgkg_to_kgha(req.N, req.P, req.K, soil_texture.lower())
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"NPK conversion failed: {e}")
 
-    companions = []
-    avoids = []
-    crop_confidence = None
-
-    # Reject if values are out of range
-    if not (NPK_MIN <= N <= NPK_MAX and NPK_MIN <= P <= NPK_MAX and NPK_MIN <= K <= NPK_MAX):
+    # Check thresholds
+    if not (NPK_MIN <= N <= NPK_MAX and NPK_MIN <= P <= NPK_MAX and NPK_MIN <= K <= NPK_MAX) or not (PH_MIN <= req.ph <= PH_MAX):
         recommended_crop = "no_crop"
-    elif not (PH_MIN <= req.ph <= PH_MAX):
-        recommended_crop = "no_crop"
+        crop_confidence = None
+        companions = []
+        avoids = []
     else:
-        # ------------ XGBOOST PREDICTION (8-FEATURE LOGIC) ------------
         try:
-            # Combine NPK, pH, and soil_encoded into 8 features
             input_features = np.hstack([[N, P, K, req.ph], soil_encoded])
             probs = xgb_model.predict_proba([input_features])[0]
 
             top_idx = int(np.argmax(probs))
             top_prob = float(probs[top_idx])
-
             pred_crop = le_label.inverse_transform([top_idx])[0].strip().lower()
-            crop_confidence = top_prob
-
-            # Log all probabilities for debugging
-            print("🔎 Class probabilities:")
-            for idx, prob in enumerate(probs):
-                crop_name = le_label.inverse_transform([idx])[0]
-                print(f"  - {crop_name}: {prob:.2%}")
-
-            print(f"🌾 Top 3 predictions:")
-            top3_indices = np.argsort(probs)[-3:][::-1]
-            for i, idx in enumerate(top3_indices, 1):
-                crop_name = le_label.inverse_transform([idx])[0]
-                print(f"  {i}. {crop_name}: {probs[idx]:.2%}")
 
             if top_prob < CROP_TOP_PROB_THRESHOLD:
                 recommended_crop = "no_crop"
+                crop_confidence = None
                 companions = []
                 avoids = []
             else:
                 recommended_crop = pred_crop
+                crop_confidence = top_prob
                 companions = companion_crops.get(pred_crop, [])
                 avoids = avoid_crops.get(pred_crop, [])
 
@@ -330,11 +280,11 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
             print("❌ XGBoost fallback:", e)
             traceback.print_exc()
             recommended_crop = "no_crop"
+            crop_confidence = None
             companions = []
             avoids = []
-            crop_confidence = None
 
-    # ------------ Save to Supabase ------------
+    # Save to Supabase
     try:
         supabase.table("soil_results").insert({
             "user_id": user_id,
