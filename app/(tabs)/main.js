@@ -554,9 +554,9 @@ const styles = StyleSheet.create({
   deleteIconBtn: { marginLeft: 10, padding: 5 },
   deleteIcon: { fontSize: 22, color: "#800020" }, // burgundy
 
-  pickerContainer: { backgroundColor: "#fff", borderRadius: 10, marginBottom: 0, overflow: "hidden", flex:1, height: 48, justifyContent: "center" },
-  picker: { fontSize: 16, height: 48, width: "100%", backgroundColor: "transparent" },
-  pickerPlaceholder: { position: "absolute", left: 12, top: 0, bottom: 0, color: "#aaa", fontSize: 16, zIndex: 1, lineHeight: 48, textAlignVertical: "center" },
+  pickerContainer: { backgroundColor: "#fff", borderRadius: 10, marginBottom: 0, flex:1, height: 48, justifyContent: "center" },
+  picker: { fontSize: 16, height: 55, width: "100%", backgroundColor: "transparent" },
+  pickerPlaceholder: { position: "absolute", left: 12, right: 40, color: "#aaa", fontSize: 16, zIndex: 1, top: 20 },
   scrollContainer: { flexGrow: 1, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", padding: 20 },
   decorContainer: { flexDirection: "row", justifyContent: "center", marginBottom: -15 },
   decorLeft: { width: 100, height: 40, marginRight: 100 },
