@@ -12,3 +12,8 @@ venv/
 .env
 .env.local
 .venv/
+# Android crash/replay logs
+android/hs_err_pid*.log
+android/replay_pid*.log
+android/.kotlin/errors/
+*.log

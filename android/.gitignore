@@ -14,3 +14,8 @@ local.properties
 
 # Bundle artifacts
 *.jsbundle
+
+# Crash and replay logs
+hs_err_pid*.log
+replay_pid*.log
+.kotlin/errors/
