@@ -317,15 +317,12 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
     else:
         # XGBoost prediction with defensive handling
         try:
-            # One-hot encode soil texture (Option B: 8 features total)
-            soil_lower = soil_texture.lower()
-            soil_clay = 1 if soil_lower == "clay" else 0
-            soil_loamy = 1 if soil_lower == "loamy" else 0
-            soil_sandy = 1 if soil_lower == "sandy" else 0
-            soil_silt = 1 if soil_lower == "silt" else 0
+            # TEMPORARY FIX: Use 4 features until model is retrained with 8 features
+            # Soil texture is used for NPK conversion but NOT passed to XGBoost
+            # TODO: Retrain model with one-hot encoded soil texture for better accuracy
             
-            # Construct feature array: [N, P, K, pH, clay, loamy, sandy, silt]
-            input_features = np.array([[N, P, K, req.ph, soil_clay, soil_loamy, soil_sandy, soil_silt]])
+            # Construct feature array: [N, P, K, pH] only
+            input_features = np.array([[N, P, K, req.ph]])
             expected_features = getattr(xgb_model, 'n_features_in_', None)
             if expected_features is not None and expected_features != input_features.shape[1]:
                 raise HTTPException(status_code=400, detail=(
