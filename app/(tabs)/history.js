@@ -31,6 +31,8 @@ const toCamel = (report) => ({
   phLevel: report.ph_level ?? "",
   prediction: report.prediction || "",
   createdAt: report.created_at,
+  confidence: typeof report.crop_confidence === 'number' ? report.crop_confidence
+             : (typeof report.confidence === 'number' ? report.confidence : null),
 });
 
 export default function HistoryScreen() {

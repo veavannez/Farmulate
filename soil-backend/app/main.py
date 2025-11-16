@@ -8,7 +8,7 @@ from pathlib import Path
 from datetime import datetime
 import pandas as pd
 import numpy as np
-import pickle, os, tempfile, requests
+import pickle, os, tempfile, requests, traceback
 from jose import jwt
 import asyncio
 
@@ -41,9 +41,16 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # Required Columns
 # ===============================
 REQUIRED_COLUMNS = [
-    "user_id", "image_name", "image_url", "prediction",
-    "recommended_crop", "N", "P", "K", "ph_level",
-    "companions", "avoids", "created_at"
+    # Core identification
+    "user_id", "pot_name", "image_name", "image_url",
+    # Prediction outputs
+    "prediction", "recommended_crop", "crop_confidence",
+    # Inputs (stored raw)
+    "n", "p", "k", "ph_level",
+    # Related agronomic lists
+    "companions", "avoids",
+    # Metadata
+    "created_at"
 ]
 
 # ===============================
@@ -126,10 +133,13 @@ yolo_model = YOLO(str(base_dir / "best.pt"))
 with open(base_dir / "model.pkl", "rb") as f:
     xgb_model = pickle.load(f)
 
+# Load label encoder (for crop output classes)
+with open(base_dir / "label_encoder.pkl", "rb") as f:
+    le_label = pickle.load(f)
+
+# Note: soil texture is one-hot encoded manually in prediction (no soil_encoder.pkl needed)
+
 data = pd.read_csv(base_dir / "reccocrop.csv")
-from sklearn.preprocessing import LabelEncoder
-le_label = LabelEncoder()
-le_label.fit(data["label"].str.strip())
 
 records_df = pd.read_excel(base_dir / "avoidcrop.xlsx", engine="openpyxl")
 records_df.columns = records_df.columns.str.strip()
@@ -187,6 +197,12 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
 
     # YOLO prediction
     try:
+        print("➡️ /predict invoked with payload:", {
+            "imageUrl": req.imageUrl,
+            "image_name": req.image_name,
+            "N": req.N, "P": req.P, "K": req.K, "ph": req.ph,
+            "pot_name": req.pot_name
+        })
         response = requests.get(req.imageUrl, timeout=15)
         response.raise_for_status()
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
@@ -278,7 +294,9 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
 
         soil_texture = raw_label.replace("_Trained", "").capitalize()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"YOLO prediction failed: {e}")
+        print("❌ YOLO prediction exception:", e)
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"YOLO prediction failed: {type(e).__name__}: {e}")
 
     # Convert NPK
     try:
@@ -297,52 +315,84 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
     elif not (PH_MIN <= req.ph <= PH_MAX):
         recommended_crop = "no_crop"
     else:
-        # XGBoost prediction with probability check
+        # XGBoost prediction with defensive handling
         try:
-            input_features = np.array([[N, P, K, req.ph]])
+            # One-hot encode soil texture (Option B: 8 features total)
+            soil_lower = soil_texture.lower()
+            soil_clay = 1 if soil_lower == "clay" else 0
+            soil_loamy = 1 if soil_lower == "loamy" else 0
+            soil_sandy = 1 if soil_lower == "sandy" else 0
+            soil_silt = 1 if soil_lower == "silt" else 0
             
-            # Get prediction and probabilities
-            pred_encoded = xgb_model.predict(input_features)[0]
-            
-            # Try to get prediction probabilities (if model supports it)
-            try:
-                pred_proba = xgb_model.predict_proba(input_features)[0]
-                # probability for the predicted class index
-                try:
-                    classes = list(getattr(xgb_model, "classes_", []))
-                    class_pos = classes.index(pred_encoded) if classes else int(pred_encoded)
-                except ValueError:
-                    class_pos = int(pred_encoded)
-                max_proba = float(pred_proba[class_pos])
-                crop_confidence = max_proba
+            # Construct feature array: [N, P, K, pH, clay, loamy, sandy, silt]
+            input_features = np.array([[N, P, K, req.ph, soil_clay, soil_loamy, soil_sandy, soil_silt]])
+            expected_features = getattr(xgb_model, 'n_features_in_', None)
+            if expected_features is not None and expected_features != input_features.shape[1]:
+                raise HTTPException(status_code=400, detail=(
+                    f"Model expects {expected_features} features, received {input_features.shape[1]}. "
+                    "Check model training schema (may require soil texture encoding or additional inputs)."
+                ))
 
-                decoded_label = le_label.inverse_transform([int(pred_encoded)])[0]
-                # Gate by top probability threshold or explicit no_crop label
-                if (max_proba < CROP_TOP_PROB_THRESHOLD) or (decoded_label.strip().lower() == "no_crop"):
-                    recommended_crop = "no_crop"
+            raw_pred = xgb_model.predict(input_features)[0]
+            print(f"🔎 XGB raw prediction: {raw_pred} (type={type(raw_pred)})")
+
+            # Determine encoded integer for label encoder inverse transform
+            if isinstance(raw_pred, (int, np.integer)):
+                pred_encoded = int(raw_pred)
+            else:
+                # Try to map string -> index via label encoder classes
+                try:
+                    classes_list = list(le_label.classes_)
+                    pred_encoded = classes_list.index(str(raw_pred).strip())
+                except Exception:
+                    # Fallback: treat as no_crop
+                    pred_encoded = None
+
+            decoded_label = None
+            if pred_encoded is not None and 0 <= pred_encoded < len(le_label.classes_):
+                try:
+                    decoded_label = le_label.inverse_transform([pred_encoded])[0]
+                except Exception as dec_err:
+                    print(f"⚠️ Label decode failed: {dec_err}")
+                    decoded_label = None
+
+            # Probability extraction (optional)
+            try:
+                pred_proba_row = xgb_model.predict_proba(input_features)[0]
+                if pred_encoded is not None and pred_encoded < len(pred_proba_row):
+                    max_proba = float(pred_proba_row[pred_encoded])
+                    crop_confidence = max_proba
+                else:
+                    crop_confidence = None
+            except Exception as proba_err:
+                print(f"ℹ️ predict_proba unavailable or failed: {proba_err}")
+                crop_confidence = None
+
+            # Decide recommendation
+            normalized_decoded = (decoded_label or '').strip().lower()
+            if (crop_confidence is not None and crop_confidence < CROP_TOP_PROB_THRESHOLD) or normalized_decoded in {"", "no_crop"}:
+                recommended_crop = "no_crop"
+                companions = []
+                avoids = []
+                if decoded_label is None:
+                    print("ℹ️ Falling back to no_crop due to undecodable label")
+            else:
+                recommended_crop = decoded_label or "no_crop"
+                if recommended_crop == "no_crop":
                     companions = []
                     avoids = []
                 else:
-                    recommended_crop = decoded_label
                     companions = companion_crops.get(recommended_crop.lower(), [])
                     avoids = avoid_crops.get(recommended_crop.lower(), [])
-            except AttributeError:
-                # Model doesn't support predict_proba, use prediction as-is
-                decoded_label = le_label.inverse_transform([int(pred_encoded)])[0]
-                # Without proba support, be conservative: treat unknown as no_crop
-                if decoded_label.strip().lower() == "no_crop":
-                    recommended_crop = "no_crop"
-                    companions = []
-                    avoids = []
-                    crop_confidence = None
-                else:
-                    recommended_crop = decoded_label
-                    companions = companion_crops.get(recommended_crop.lower(), [])
-                    avoids = avoid_crops.get(recommended_crop.lower(), [])
-                    crop_confidence = None
-                
+        except HTTPException:
+            raise
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"XGBoost prediction failed: {e}")
+            print(f"❌ XGBoost prediction error (graceful fallback): {e}")
+            print(traceback.format_exc())
+            recommended_crop = "no_crop"
+            companions = []
+            avoids = []
+            crop_confidence = None
 
     # Store in Supabase
     try:

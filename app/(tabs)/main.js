@@ -226,12 +226,44 @@ useEffect(() => {
       clearTimeout(timeoutId);
       
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error("API Error Response:", errorText);
-        throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+        let errorPayload = null;
+        const contentType = response.headers.get('content-type') || '';
+        try {
+          if (contentType.includes('application/json')) {
+            errorPayload = await response.json();
+          } else {
+            const txt = await response.text();
+            errorPayload = { detail: txt };
+          }
+        } catch (parseErr) {
+          errorPayload = { detail: 'Failed to parse error payload.' };
+        }
+        const detail = errorPayload?.detail || 'Unknown error';
+        console.error(`API Error ${response.status}:`, detail);
+
+        if (response.status === 400) {
+          Alert.alert(
+            'Input Error',
+            `${detail}\n\nPlease verify nutrient values and that model feature expectations match (e.g., retrain or adjust server).`
+          );
+        } else if (response.status === 500) {
+          Alert.alert(
+            'Server Error',
+            `${detail}\n\nThe model encountered an internal issue. Try again shortly or check backend logs.`
+          );
+        } else {
+          Alert.alert('Request Failed', `${response.status} ${response.statusText}: ${detail}`);
+        }
+        throw new Error(`Predict failed ${response.status}`);
       }
-      
-      const result = await response.json();
+
+      let result;
+      try {
+        result = await response.json();
+      } catch (jsonErr) {
+        Alert.alert('Response Error', 'Could not parse prediction response.');
+        throw jsonErr;
+      }
       console.log("✅ Backend response:", result);
       
       return { 
@@ -250,10 +282,13 @@ useEffect(() => {
           "The server took too long to respond. Render's free tier may be starting up. Please try again in a minute."
         );
       } else {
-        Alert.alert(
-          "Prediction Error",
-          `Failed to get soil prediction: ${err.message || 'Unknown error'}\n\nPlease check your internet connection and try again.`
-        );
+        // Generic fallback already handled above for specific status codes
+        if (!/Predict failed/.test(err.message)) {
+          Alert.alert(
+            'Prediction Error',
+            `Failed to get soil prediction: ${err.message || 'Unknown error'}\n\nPlease check your internet connection and try again.`
+          );
+        }
       }
       
       throw err; // Re-throw to stop the farmulate process
@@ -555,8 +590,8 @@ const styles = StyleSheet.create({
   deleteIcon: { fontSize: 22, color: "#800020" }, // burgundy
 
   pickerContainer: { backgroundColor: "#fff", borderRadius: 10, marginBottom: 0, flex:1, height: 48, justifyContent: "center" },
-  picker: { fontSize: 16, height: 55, width: "100%", backgroundColor: "transparent" },
-  pickerPlaceholder: { position: "absolute", left: 12, right: 40, color: "#aaa", fontSize: 16, zIndex: 1, top: 20 },
+  picker: { fontSize: 16, height: 60, width: "100%", backgroundColor: "transparent" },
+  pickerPlaceholder: { position: "absolute", left: 12, right: 40, color: "#aaa", fontSize: 16, zIndex: 1, top: 15 },
   scrollContainer: { flexGrow: 1, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", padding: 20 },
   decorContainer: { flexDirection: "row", justifyContent: "center", marginBottom: -15 },
   decorLeft: { width: 100, height: 40, marginRight: 100 },

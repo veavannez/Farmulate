@@ -1,12 +1,12 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
 import {
-    Dimensions,
-    Image,
-    SafeAreaView,
-    StyleSheet,
-    Text,
-    View
+  Dimensions,
+  Image,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  View
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSoil } from "../../context/soilContext";
@@ -108,6 +108,7 @@ export default function TabsLayout() {
           />
         ))}
       </Tabs>
+      {isProcessing && <View style={styles.tabBlocker} pointerEvents="auto" />}
     </View>
   );
 }
@@ -166,5 +167,15 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     textAlign: "center",
     marginBottom: -15, // space from bottom
+  },
+  tabBlocker: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 65, // match tab bar height
+    // Transparent overlay purely to swallow touches
+    backgroundColor: 'transparent',
+    zIndex: 999,
   },
 });

@@ -53,6 +53,9 @@ export const SoilProvider = ({ children }) => {
     potName: data.potName || data.pot_name || "Unnamed Soil",
     soilImage: data.image_url || data.soilImage || null,
     generatedAt: data.created_at || data.generatedAt || new Date().toISOString(),
+    // Confidence (probability 0-1) may arrive as crop_confidence or confidence
+    confidence: typeof data.crop_confidence === 'number' ? data.crop_confidence
+               : (typeof data.confidence === 'number' ? data.confidence : null),
   };
 
   setSoilData(mappedSoilData);

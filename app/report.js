@@ -454,6 +454,45 @@ const ReportScreen = () => {
     }
   };
 
+  // Deep link / refresh survival: fetch by reportId if provided or soilData missing
+  useEffect(() => {
+    const maybeFetch = async () => {
+      if (soilData && !reportId) return; // already have data
+      if (!reportId) return; // no id to fetch
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user?.id) return;
+        const { data, error } = await supabase
+          .from('soil_results')
+          .select('*')
+          .eq('id', reportId)
+          .eq('user_id', user.id)
+          .limit(1);
+        if (error) throw error;
+        if (!data || data.length === 0) return;
+        const row = data[0];
+        const mapped = {
+          potName: row.pot_name,
+          soilTexture: sanitizeSoilTexture(row.prediction || 'Not detected'),
+            recommendedCrop: row.recommended_crop || 'No recommendation',
+            nitrogen: row.n ?? '',
+            phosphorus: row.p ?? '',
+            potassium: row.k ?? '',
+            phLevel: row.ph_level ?? '',
+            soilImage: row.image_url || null,
+            companions: row.companions || [],
+            avoid: row.avoids || [],
+            confidence: typeof row.crop_confidence === 'number' ? row.crop_confidence : null,
+            generatedAt: row.created_at || new Date().toISOString(),
+        };
+        setSoilData(mapped);
+      } catch (e) {
+        console.warn('Report fetch failed:', e.message || e);
+      }
+    };
+    maybeFetch();
+  }, [reportId]);
+
   useEffect(() => {
     const fetchReport = async () => {
       try {
