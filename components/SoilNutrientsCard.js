@@ -1,4 +1,5 @@
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Dimensions, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useSoil } from "../context/soilContext";
@@ -12,6 +13,7 @@ const SoilNutrientsCard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const { soilData: soilContextData } = useSoil();
+  const router = useRouter();
 
   const fetchLatestReport = useCallback(async () => {
     try {
@@ -37,7 +39,7 @@ const SoilNutrientsCard = () => {
         .eq("user_id", user.id)
         .order("created_at", { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
       if (supaError) throw supaError;
 
@@ -62,11 +64,12 @@ const SoilNutrientsCard = () => {
       </View>
     );
 
-  if (error || !data)
+  // When there is an actual error (network/auth), show refresh. Otherwise, handle "no reports" separately.
+  if (error && !data)
     return (
       <View style={[styles.panel, { width: SCREEN_WIDTH - 40 }]}>
         <View style={styles.emptyContainer}>
-          <Text style={styles.emptyText}>{error || "No soil report available"}</Text>
+          <Text style={styles.emptyText}>{error}</Text>
           <TouchableOpacity onPress={fetchLatestReport} style={styles.refreshButton}>
             <Ionicons name="refresh" size={24} color="#fff" />
             <Text style={styles.refreshText}>Refresh</Text>
@@ -76,10 +79,31 @@ const SoilNutrientsCard = () => {
     );
 
   // Normalize nutrient values from either DB (n,p,k,ph_level) or context (nitrogen,phosphorus,potassium,phLevel)
-  const nitrogenValue = data?.n ?? data?.nitrogen ?? 0;
-  const phosphorusValue = data?.p ?? data?.phosphorus ?? 0;
-  const potassiumValue = data?.k ?? data?.potassium ?? 0;
-  const phValue = data?.ph_level ?? data?.phLevel ?? data?.ph ?? 0;
+  const nitrogenValue = data?.n ?? data?.nitrogen ?? null;
+  const phosphorusValue = data?.p ?? data?.phosphorus ?? null;
+  const potassiumValue = data?.k ?? data?.potassium ?? null;
+  const phValue = data?.ph_level ?? data?.phLevel ?? data?.ph ?? null;
+
+  const noNutrientValues =
+    !data ||
+    (nitrogenValue == null && phosphorusValue == null && potassiumValue == null && phValue == null);
+
+  if (noNutrientValues) {
+    return (
+      <View style={[styles.panel, { width: SCREEN_WIDTH - 40 }]}>
+        <View style={[styles.card, styles.emptyCardTheme]}> 
+          <Text style={styles.emptyText}>No reports found.</Text>
+          <TouchableOpacity
+            onPress={() => router.push("/(tabs)/main")}
+            style={styles.button}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.buttonText}>Add Report</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
   // Use category color for pH to get a slightly darker/meaningful shade
   const phCategory = getPhCategory(Number(phValue));
 
@@ -148,6 +172,17 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     elevation: 4,
   },
+  emptyCardTheme: {
+    width: "100%",
+    height: 160,
+    backgroundColor: "#f5f5f5",
+    borderRadius: 20,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
+    gap: 12,
+  },
   value: { fontSize: 36, fontWeight: "900", color: "#fff", marginTop: 6 },
   label: { fontSize: 16, fontWeight: "700", color: "#fff", textAlign: "center", marginTop: 2 },
   unitText: { fontSize: 12, fontWeight: "600", color: "rgba(255,255,255,0.85)", textAlign: "center", marginTop: 2 },
@@ -187,6 +222,14 @@ const styles = StyleSheet.create({
     borderRadius: 16,
   },
   refreshText: { color: "#fff", fontWeight: "600" },
+  button: {
+    marginTop: 10,
+    backgroundColor: "#2e7d32",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 16,
+  },
+  buttonText: { color: "#fff", fontWeight: "700" },
 });
 
 export default SoilNutrientsCard;
