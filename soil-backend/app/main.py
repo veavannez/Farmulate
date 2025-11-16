@@ -152,11 +152,23 @@ avoid_crops = {
 # ===============================
 # Detection thresholds
 # ===============================
-CROP_TOP_PROB_THRESHOLD = 0.7 
+CROP_TOP_PROB_THRESHOLD = 0.5 
 NPK_MIN = 0
 NPK_MAX = 500
 PH_MIN = 3.5
 PH_MAX = 9.5
+
+# Explicit mapping from YOLO labels to encoder categories
+YOLO_TO_ENCODER = {
+    "Clay": "Clay",
+    "clay": "Clay",
+    "Loamy": "Loamy",
+    "loamy": "Loamy",
+    "Sandy": "Sandy",
+    "sandy": "Sandy",
+    "Silt": "Silt",
+    "silt": "Silt",
+}
 
 # ===============================
 # Health Check
@@ -236,14 +248,23 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
                 "converted_values": {"N": N, "P": P, "K": K, "ph": req.ph}
             }
 
-        soil_texture = raw_label.replace("_Trained", "").capitalize()
-        
-        # Validate soil_texture against encoder categories
-        if soil_texture not in soil_encoder.categories_[0]:
-            print(f"⚠️ Soil texture '{soil_texture}' not in encoder categories, defaulting to Loamy")
-            soil_texture = "Loamy"
-        
-        # Encode soil texture for XGBoost
+        # Normalize YOLO label and map explicitly to encoder categories
+        clean_label = raw_label.replace("_Trained", "").strip()
+        soil_texture = YOLO_TO_ENCODER.get(clean_label, YOLO_TO_ENCODER.get(clean_label.lower(), None))
+        if not soil_texture:
+            low = clean_label.lower()
+            if "clay" in low:
+                soil_texture = "Clay"
+            elif "loam" in low:
+                soil_texture = "Loamy"
+            elif "sand" in low:
+                soil_texture = "Sandy"
+            elif "silt" in low:
+                soil_texture = "Silt"
+            else:
+                soil_texture = "Loamy"
+
+        # One-hot encode soil texture for XGBoost
         soil_encoded_result = soil_encoder.transform([[soil_texture]])
         # Handle both sparse matrix and dense array
         if hasattr(soil_encoded_result, 'toarray'):
@@ -272,7 +293,7 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
     elif not (PH_MIN <= req.ph <= PH_MAX):
         recommended_crop = "no_crop"
     else:
-        # ------------ XGBOOST PREDICTION (NEW LOGIC) ------------
+        # ------------ XGBOOST PREDICTION (8-FEATURE LOGIC) ------------
         try:
             # Combine NPK, pH, and soil_encoded into 8 features
             input_features = np.hstack([[N, P, K, req.ph], soil_encoded])
@@ -283,6 +304,12 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
 
             pred_crop = le_label.inverse_transform([top_idx])[0].strip().lower()
             crop_confidence = top_prob
+
+            # Log all probabilities for debugging
+            print("🔎 Class probabilities:")
+            for idx, prob in enumerate(probs):
+                crop_name = le_label.inverse_transform([idx])[0]
+                print(f"  - {crop_name}: {prob:.2%}")
 
             print(f"🌾 Top 3 predictions:")
             top3_indices = np.argsort(probs)[-3:][::-1]
