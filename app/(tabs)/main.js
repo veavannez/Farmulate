@@ -556,7 +556,7 @@ const styles = StyleSheet.create({
 
   pickerContainer: { backgroundColor: "#fff", borderRadius: 10, marginBottom: 0, overflow: "hidden", flex:1, height: 48, justifyContent: "center" },
   picker: { fontSize: 16, height: 48, width: "100%", backgroundColor: "transparent" },
-  pickerPlaceholder: { position: "absolute", left: 12, top: 12, color: "#aaa", fontSize: 16, zIndex: 1 },
+  pickerPlaceholder: { position: "absolute", left: 12, top: 0, bottom: 0, color: "#aaa", fontSize: 16, zIndex: 1, lineHeight: 48, textAlignVertical: "center" },
   scrollContainer: { flexGrow: 1, backgroundColor: "#fff", alignItems: "center", justifyContent: "center", padding: 20 },
   decorContainer: { flexDirection: "row", justifyContent: "center", marginBottom: -15 },
   decorLeft: { width: 100, height: 40, marginRight: 100 },
