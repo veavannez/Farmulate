@@ -1,6 +1,7 @@
 // app/report.js
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Print from 'expo-print';
+import * as FileSystem from 'expo-file-system';
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Sharing from 'expo-sharing';
 import { useEffect, useState } from "react";
@@ -75,16 +76,14 @@ const ReportScreen = () => {
         <!DOCTYPE html>
         <html>
         <head>
+          <title>Farmulate Soil Report - ${soilData.potName || 'Unnamed Pot/Plot'}</title>
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <style>
             * { margin: 0; padding: 0; box-sizing: border-box; }
-            @page { 
-              size: A4; 
-              margin: 0; 
-            }
+            @page { size: A4; margin: 1in; }
             body { 
               font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-              padding: 24px 32px;
+              padding: 0;
               color: #1a1a1a;
               background: #fff;
               line-height: 1.5;
@@ -145,6 +144,7 @@ const ReportScreen = () => {
               border: 1px solid #ddd;
               border-radius: 4px;
               padding: 14px;
+              page-break-inside: avoid;
             }
             .section-header {
               font-size: 12px;
@@ -405,16 +405,29 @@ const ReportScreen = () => {
       `;
 
       const { uri } = await Print.printToFileAsync({ html });
+
+      // Build industry-standard filename: Farmulate_Report_<pot>_<YYYY-MM-DD>.pdf
+      const safePot = (soilData.potName || 'Unnamed Pot').toString().replace(/[^a-z0-9_\-]+/gi, '_').replace(/^_+|_+$/g, '');
+      const dateStr = new Date(soilData.generatedAt || Date.now()).toISOString().slice(0, 10);
+      const finalName = `Farmulate_Report_${safePot}_${dateStr}.pdf`;
+      const destUri = `${FileSystem.documentDirectory}${finalName}`;
+
+      try {
+        await FileSystem.moveAsync({ from: uri, to: destUri });
+      } catch (moveErr) {
+        // Fallback: if move fails, keep original uri but still use naming in share dialog
+        console.warn('Could not move PDF to documents directory:', moveErr?.message || moveErr);
+      }
       
       const canShare = await Sharing.isAvailableAsync();
       if (canShare) {
-        await Sharing.shareAsync(uri, {
+        await Sharing.shareAsync(destUri || uri, {
           mimeType: 'application/pdf',
-          dialogTitle: 'Share Soil Report',
+          dialogTitle: finalName,
           UTI: 'com.adobe.pdf'
         });
       } else {
-        Alert.alert('Success', 'PDF generated successfully!');
+        Alert.alert('Success', `PDF generated: ${finalName}`);
       }
     } catch (error) {
       console.error('Error generating PDF:', error);
