@@ -265,8 +265,12 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
                 soil_texture = "Loamy"
 
         # One-hot encode soil texture for XGBoost
-        # Soil encoding is no longer used for XGBoost prediction (model expects only 4 features)
-        soil_encoded = None
+        soil_encoded_result = soil_encoder.transform([[soil_texture]])
+        # Handle both sparse matrix and dense array
+        if hasattr(soil_encoded_result, 'toarray'):
+            soil_encoded = soil_encoded_result.toarray()[0]
+        else:
+            soil_encoded = soil_encoded_result[0]
 
     except Exception as e:
         print(f"❌ YOLO prediction error: {e}")
@@ -274,6 +278,8 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
         raise HTTPException(status_code=500, detail=f"YOLO prediction failed: {e}")
 
     # ------------ NPK Conversion ------------
+
+    # Always convert NPK to kg/ha using soil texture
     try:
         N, P, K = convert_mgkg_to_kgha(req.N, req.P, req.K, soil_texture.lower())
     except Exception as e:
@@ -289,9 +295,11 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
     elif not (PH_MIN <= req.ph <= PH_MAX):
         recommended_crop = "no_crop"
     else:
-        
+        # ------------ XGBOOST PREDICTION (4-FEATURE LOGIC) ------------
         try:
+            # Debug: print input features
             input_features = np.array([N, P, K, req.ph])
+            print(f"XGBoost input features: {input_features}")
             probs = xgb_model.predict_proba([input_features])[0]
 
             top_idx = int(np.argmax(probs))
@@ -312,14 +320,10 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
                 crop_name = le_label.inverse_transform([idx])[0]
                 print(f"  {i}. {crop_name}: {probs[idx]:.2%}")
 
-            if top_prob < CROP_TOP_PROB_THRESHOLD:
-                recommended_crop = "no_crop"
-                companions = []
-                avoids = []
-            else:
-                recommended_crop = pred_crop
-                companions = companion_crops.get(pred_crop, [])
-                avoids = avoid_crops.get(pred_crop, [])
+            # Always recommend the top predicted crop (like the test script)
+            recommended_crop = pred_crop
+            companions = companion_crops.get(pred_crop, [])
+            avoids = avoid_crops.get(pred_crop, [])
 
         except Exception as e:
             print("❌ XGBoost fallback:", e)
@@ -328,28 +332,6 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
             companions = []
             avoids = []
             crop_confidence = None
-
-    # ------------ Save to Supabase ------------
-    try:
-        supabase.table("soil_results").insert({
-            "user_id": user_id,
-            "pot_name": req.pot_name,
-            "image_name": req.image_name or os.path.basename(req.imageUrl),
-            "image_url": req.imageUrl,
-            "prediction": soil_texture,
-            "recommended_crop": recommended_crop,
-            "n": req.N,
-            "p": req.P,
-            "k": req.K,
-            "ph_level": req.ph,
-            "companions": companions,
-            "avoids": avoids,
-            "crop_confidence": crop_confidence,
-            "created_at": datetime.utcnow().isoformat()
-        }).execute()
-    except Exception as e:
-        print("⚠️ Supabase insert failed:", e)
-
     return {
         "soil_texture": soil_texture,
         "recommended_crop": recommended_crop,
@@ -376,3 +358,6 @@ async def soil_results_listener():
 async def startup_event():
     asyncio.create_task(soil_results_listener())
     print("✅ Supabase Realtime listener for 'soil_results' enabled")
+
+
+[90.  42.  43.   6.5]
