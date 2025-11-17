@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Header
+rom fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from supabase import create_client, Client
@@ -102,7 +102,7 @@ def convert_mgkg_to_kgha(N_mgkg, P_mgkg, K_mgkg, soil_type):
     if soil_type not in bd_values:
         raise ValueError(f"Invalid soil type: {soil_type}")
     bulk_density = bd_values[soil_type]
-    soil_mass = bulk_density * 30 * 1e5  # 30 cm layer, convert to kg/ha
+    soil_mass = bulk_density * 30 * 1e5  # 30 cm layer, kg/ha
     N = N_mgkg * (soil_mass / 1e6)
     P = P_mgkg * (soil_mass / 1e6)
     K = K_mgkg * (soil_mass / 1e6)
@@ -147,7 +147,7 @@ avoid_crops = {
     for _, row in records_df.iterrows()
 }
 
-# Detection thresholds
+# Thresholds
 CROP_TOP_PROB_THRESHOLD = 0.5
 NPK_MIN = 0
 NPK_MAX = 500
@@ -195,16 +195,23 @@ async def debug():
     return debug_report
 
 # ===============================
-# Predict Endpoint
+# Predict Endpoint (Fully Verbose)
 # ===============================
 @app.post("/predict")
 async def predict(req: PredictRequest, authorization: str | None = Header(None)):
+    # ------------------------------
+    # 1️⃣ Verify token
+    # ------------------------------
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
     token = authorization.split(" ")[1]
     user_id = verify_supabase_token(token)
 
-    # YOLO Soil Detection
+    # ------------------------------
+    # 2️⃣ YOLO Soil Detection
+    # ------------------------------
+    soil_texture = "Unknown"
+    soil_encoded = None
     try:
         response = requests.get(req.imageUrl, timeout=15)
         response.raise_for_status()
@@ -216,65 +223,115 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
         result = results[0]
 
         if getattr(result, "probs", None) is None:
+            print("YOLO: No soil detected")
             soil_texture = "No soil detected"
         else:
             top_idx = int(result.probs.top1)
             raw_label = result.names[top_idx]
-            clean_label = raw_label.replace("_Trained", "").strip()
-            soil_texture = YOLO_TO_ENCODER.get(clean_label, clean_label.title())
-            if not soil_texture:
-                low = clean_label.lower()
-                if "clay" in low:
-                    soil_texture = "Clay"
-                elif "loam" in low:
-                    soil_texture = "Loamy"
-                elif "sand" in low:
-                    soil_texture = "Sandy"
-                elif "silt" in low:
-                    soil_texture = "Silt"
-                else:
-                    soil_texture = "Loamy"
+            normalized_label = raw_label.strip().lower().replace(" ", "_")
+
+            if normalized_label in {"not_soil", "no_soil", "no_soil_detected"}:
+                print("YOLO: Not soil detected label")
+                soil_texture = "No soil detected"
+            else:
+                clean_label = raw_label.replace("_Trained", "").strip()
+                soil_texture = YOLO_TO_ENCODER.get(clean_label, YOLO_TO_ENCODER.get(clean_label.lower(), None))
+                if not soil_texture:
+                    low = clean_label.lower()
+                    if "clay" in low:
+                        soil_texture = "Clay"
+                    elif "loam" in low:
+                        soil_texture = "Loamy"
+                    elif "sand" in low:
+                        soil_texture = "Sandy"
+                    elif "silt" in low:
+                        soil_texture = "Silt"
+                    else:
+                        soil_texture = "Loamy"
+                # Soil encoding
+                try:
+                    soil_encoded_result = soil_encoder.transform([[soil_texture]])
+                    if hasattr(soil_encoded_result, 'toarray'):
+                        soil_encoded = soil_encoded_result.toarray()[0]
+                    else:
+                        soil_encoded = soil_encoded_result[0]
+                except Exception:
+                    soil_encoded = None
+                print(f"YOLO: Detected soil texture: {soil_texture}, Encoded: {soil_encoded}")
     except Exception as e:
         print(f"❌ YOLO prediction error: {e}")
         traceback.print_exc()
         soil_texture = "Unknown"
 
-    # Convert mg/kg → kg/ha
+    # ------------------------------
+    # 3️⃣ Convert mg/kg → kg/ha
+    # ------------------------------
     try:
         N_kgha, P_kgha, K_kgha = convert_mgkg_to_kgha(req.N, req.P, req.K, soil_texture.lower())
+        print(f"Converted NPK (kg/ha): N={N_kgha}, P={P_kgha}, K={K_kgha}")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"NPK conversion failed: {e}")
 
-    # XGBoost Prediction
+    # ------------------------------
+    # 4️⃣ XGBoost Prediction
+    # ------------------------------
     recommended_crop = "no_crop"
     companions = []
     avoids = []
     crop_confidence = None
 
     if not (NPK_MIN <= N_kgha <= NPK_MAX and NPK_MIN <= P_kgha <= NPK_MAX and NPK_MIN <= K_kgha <= NPK_MAX):
-        recommended_crop = "no_crop"
+        print("⚠️ NPK values out of range")
     elif not (PH_MIN <= req.ph <= PH_MAX):
-        recommended_crop = "no_crop"
+        print("⚠️ pH value out of range")
     else:
         try:
-            features = np.array([[N_kgha, P_kgha, K_kgha, req.ph]])
-            probs = xgb_model.predict_proba(features)[0]
+            input_features = np.array([[N_kgha, P_kgha, K_kgha, req.ph]])
+            probs = xgb_model.predict_proba(input_features)[0]
             top_idx = int(np.argmax(probs))
             top_prob = float(probs[top_idx])
             try:
                 pred_crop = le_label.inverse_transform([top_idx])[0].strip().lower()
-            except Exception:
+            except Exception as e:
+                print(f"LabelEncoder mismatch: {e}")
                 pred_crop = "unknown_crop"
             crop_confidence = top_prob
 
-            if top_prob >= CROP_TOP_PROB_THRESHOLD and pred_crop != "unknown_crop":
+            # Print all probabilities
+            print("🔎 Class probabilities:")
+            for idx, prob in enumerate(probs):
+                try:
+                    crop_name = le_label.inverse_transform([idx])[0]
+                except Exception as e:
+                    crop_name = f"Label error: {e}"
+                print(f"  - {crop_name}: {prob:.2%}")
+
+            # Top 3 predictions
+            top3_indices = np.argsort(probs)[-3:][::-1]
+            print("🌾 Top 3 predictions:")
+            for i, idx in enumerate(top3_indices, 1):
+                try:
+                    crop_name = le_label.inverse_transform([idx])[0]
+                except Exception as e:
+                    crop_name = f"Label error: {e}"
+                print(f"  {i}. {crop_name}: {probs[idx]:.2%}")
+
+            if top_prob < CROP_TOP_PROB_THRESHOLD:
+                recommended_crop = "no_crop"
+                companions = []
+                avoids = []
+            else:
                 recommended_crop = pred_crop
                 companions = companion_crops.get(pred_crop, [])
                 avoids = avoid_crops.get(pred_crop, [])
-        except Exception as e:
-            print(f"❌ XGBoost prediction error: {e}")
 
-    # Save to Supabase
+        except Exception as e:
+            print("❌ XGBoost fallback:", e)
+            traceback.print_exc()
+
+    # ------------------------------
+    # 5️⃣ Save Result to Supabase
+    # ------------------------------
     try:
         supabase.table("soil_results").insert({
             "user_id": user_id,
