@@ -118,7 +118,7 @@ def verify_supabase_token(token: str) -> str:
 # ===============================
 # Load Models & Data
 # ===============================
-base_dir = Path(_file_).resolve().parent / "model"
+base_dir = Path(__file__).resolve().parent / "model"
 
 yolo_model = YOLO(str(base_dir / "best.pt"))
 
@@ -138,14 +138,14 @@ records_df.columns = records_df.columns.str.strip()
 records_df = records_df.dropna(subset=["Crops"])
 records_df["Crops"] = records_df["Crops"].str.strip().str.lower()
 
-companion_crops = {
-    row["Crops"]: [c.strip().lower() for c in str(row.get("Helps", "")).split(",") if c.strip()]
+companion_crops = dict(
+    (row["Crops"], [c.strip().lower() for c in str(row.get("Helps", "")).split(",") if c.strip()])
     for _, row in records_df.iterrows()
-}
-avoid_crops = {
-    row["Crops"]: [c.strip().lower() for c in str(row.get("Avoid", "")).split(",") if c.strip()]
+)
+avoid_crops = dict(
+    (row["Crops"], [c.strip().lower() for c in str(row.get("Avoid", "")).split(",") if c.strip()])
     for _, row in records_df.iterrows()
-}
+)
 
 # Thresholds
 CROP_TOP_PROB_THRESHOLD = 0.5
@@ -322,8 +322,14 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
                 avoids = []
             else:
                 recommended_crop = pred_crop
-                companions = companion_crops.get(pred_crop, [])
-                avoids = avoid_crops.get(pred_crop, [])
+                if isinstance(pred_crop, str) and pred_crop in companion_crops:
+                    companions = companion_crops[pred_crop]
+                else:
+                    companions = []
+                if isinstance(pred_crop, str) and pred_crop in avoid_crops:
+                    avoids = avoid_crops[pred_crop]
+                else:
+                    avoids = []
 
         except Exception as e:
             print("❌ XGBoost fallback:", e)
