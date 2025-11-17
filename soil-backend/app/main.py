@@ -214,9 +214,12 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
         result = results[0]
 
         # YOLO classifier: get probs safely
-        probs = getattr(result, "probs", None)
-        if probs is None:
-            # Fallback for older versions / empty probs
+        probs_obj = getattr(result, "probs", None)
+        if probs_obj is not None:
+            # Convert Probs object to NumPy array
+            probs = probs_obj.cpu().numpy() if hasattr(probs_obj, "cpu") else np.array(probs_obj)
+        else:
+            # Fallback: logits or uniform
             if hasattr(result, "logits"):
                 logits = result.logits[0].numpy()
                 probs = np.exp(logits) / np.sum(np.exp(logits))
@@ -224,9 +227,8 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
                 raise HTTPException(status_code=500, detail="YOLO classifier returned no probabilities")
 
         top_idx = int(np.argmax(probs))
-        if top_idx >= len(result.names):
-            top_idx = 0  # fallback
         raw_label = result.names[top_idx]
+
 
         # Normalize YOLO label
         clean_label = raw_label.replace("_Trained", "").strip()
