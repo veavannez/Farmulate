@@ -330,6 +330,10 @@ async def predict(req: PredictRequest, authorization: Optional[str] = Header(Non
     except Exception as e:
         print("⚠️ Supabase insert failed:", e)
 
+        # ===============================
+        # Debug Endpoint for Model/Data Validation
+        # ===============================
+
     return {
         "soil_texture": soil_texture,
         "recommended_crop": recommended_crop,
