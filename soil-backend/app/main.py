@@ -192,6 +192,7 @@ async def health():
 # Predict Endpoint
 # ===============================
 @app.post("/predict")
+@app.post("/predict")
 async def predict(req: PredictRequest, authorization: str | None = Header(None)):
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
@@ -201,7 +202,7 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
 
     # ------------ YOLO INFERENCE ------------
     soil_encoded = None
-    
+    soil_texture = None
     try:
         response = requests.get(req.imageUrl, timeout=15)
         response.raise_for_status()
@@ -212,23 +213,19 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
         results = yolo_model.predict(tmp_path)
         result = results[0]
 
-        if getattr(result, "probs", None) is None:
-            soil_texture = "No soil detected"
-            recommended_crop = "no_crop"
-            companions = []
-            avoids = []
-            crop_confidence = None
-            N, P, K = req.N, req.P, req.K
-            return {
-                "soil_texture": soil_texture,
-                "recommended_crop": recommended_crop,
-                "companions": companions,
-                "avoids": avoids,
-                "confidence": crop_confidence,
-                "converted_values": {"N": N, "P": P, "K": K, "ph": req.ph}
-            }
+        # YOLO classifier: get probs safely
+        probs = getattr(result, "probs", None)
+        if probs is None:
+            # Fallback for older versions / empty probs
+            if hasattr(result, "logits"):
+                logits = result.logits[0].numpy()
+                probs = np.exp(logits) / np.sum(np.exp(logits))
+            else:
+                raise HTTPException(status_code=500, detail="YOLO classifier returned no probabilities")
 
-        top_idx = int(result.probs.top1)
+        top_idx = int(np.argmax(probs))
+        if top_idx >= len(result.names):
+            top_idx = 0  # fallback
         raw_label = result.names[top_idx]
 
         # Normalize YOLO label
@@ -247,13 +244,10 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
             else:
                 soil_texture = "Loamy"
 
-        # One-hot encode soil texture for logging only
+        # Optional: one-hot encode soil texture for logging
         try:
             soil_encoded_result = soil_encoder.transform([[soil_texture]])
-            if hasattr(soil_encoded_result, 'toarray'):
-                soil_encoded = soil_encoded_result.toarray()[0]
-            else:
-                soil_encoded = soil_encoded_result[0]
+            soil_encoded = soil_encoded_result.toarray()[0] if hasattr(soil_encoded_result, 'toarray') else soil_encoded_result[0]
         except Exception:
             soil_encoded = None
 
@@ -271,6 +265,7 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
     companions = []
     avoids = []
     crop_confidence = None
+    recommended_crop = "no_crop"
 
     # Reject if out of range
     if not (NPK_MIN <= N <= NPK_MAX and NPK_MIN <= P <= NPK_MAX and NPK_MIN <= K <= NPK_MAX):
@@ -287,19 +282,17 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
 
             probs = xgb_model.predict_proba(input_features)[0]
             top_idx = int(np.argmax(probs))
-            top_prob = float(probs[top_idx])
 
-            try:
-                pred_crop = le_label.inverse_transform([top_idx])[0].strip().lower()
-            except Exception:
-                pred_crop = "unknown_crop"
+            # Safety check for LabelEncoder bounds
+            if top_idx >= len(le_label.classes_):
+                print(f"⚠️ top_idx {top_idx} out of bounds for LabelEncoder, using 0")
+                top_idx = 0
 
-            crop_confidence = top_prob
+            pred_crop = le_label.inverse_transform([top_idx])[0].strip().lower()
+            crop_confidence = float(probs[top_idx])
 
-            if top_prob < CROP_TOP_PROB_THRESHOLD:
+            if crop_confidence < CROP_TOP_PROB_THRESHOLD:
                 recommended_crop = "no_crop"
-                companions = []
-                avoids = []
             else:
                 recommended_crop = pred_crop
                 companions = companion_crops.get(pred_crop, [])
@@ -342,6 +335,7 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
         "confidence": crop_confidence,
         "converted_values": {"N": N, "P": P, "K": K, "ph": req.ph}
     }
+
 
 # ===============================
 # REALTIME LISTENER
