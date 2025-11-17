@@ -11,6 +11,7 @@ import numpy as np
 import pickle, os, tempfile, requests, traceback
 from jose import jwt
 import asyncio
+from typing import Optional
 
 # ===============================
 # Load Environment Variables
@@ -49,53 +50,21 @@ REQUIRED_COLUMNS = [
 ]
 
 # ===============================
-# Validation Functions
+# Request Schema
 # ===============================
-def validate_env():
-    soil_encoded = None
-    try:
-        # Fetch image
-        response = requests.get(req.imageUrl, timeout=15)
-        response.raise_for_status()
-        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
-            tmp.write(response.content)
-            tmp_path = tmp.name
+class PredictRequest(BaseModel):
+    imageUrl: str = Field(..., alias="imageUrl")
+    image_name: Optional[str] = None
+    N: float
+    P: float
+    K: float
+    ph: float
+    pot_name: str
 
-        results = yolo_model.predict(tmp_path)
-        result = results[0]
+    class Config:
+        allow_population_by_field_name = True
 
-        if getattr(result, "probs", None) is None:
-            soil_texture = "No soil detected"
-            recommended_crop = "no_crop"
-            companions = []
-            avoids = []
-            crop_confidence = None
-            N, P, K = req.N, req.P, req.K
-            return {
-                "soil_texture": soil_texture,
-                "recommended_crop": recommended_crop,
-                "companions": companions,
-                "avoids": avoids,
-                "confidence": crop_confidence,
-                "converted_values": {"N": N, "P": P, "K": K, "ph": req.ph}
-            }
-
-        # YOLO prediction mapping
-        raw_label = result.names[int(result.probs.top1)]
-        clean_label = raw_label.replace("_Trained", "").strip()
-        soil_texture = YOLO_TO_ENCODER.get(clean_label, "Loamy")
-        # Logging for debugging
-        print(f"🔎 YOLO label: '{raw_label}' | Cleaned: '{clean_label}' | Mapped to encoder: '{soil_texture}'")
-
-        # Encode soil texture for XGBoost
-        soil_encoded_result = soil_encoder.transform([[soil_texture]])
-        if hasattr(soil_encoded_result, "toarray"):
-            soil_encoded = soil_encoded_result.toarray()[0]
-        else:
-            soil_encoded = soil_encoded_result[0]
-        print(f"🔎 One-hot soil encoding: {soil_encoded} | Length: {len(soil_encoded)}")
-        if not isinstance(soil_encoded, (np.ndarray, list)) or len(soil_encoded) != 4:
-            raise RuntimeError(f"❌ Soil encoder output length is {len(soil_encoded)}, expected 4. Check soil_encoder.pkl and categories.")
+# ===============================
 # Helper Functions
 # ===============================
 def convert_mgkg_to_kgha(N_mgkg, P_mgkg, K_mgkg, soil_type):
@@ -185,7 +154,6 @@ YOLO_TO_ENCODER = {
 async def root():
     return {
         "status": "online",
-        print(f"🔎 YOLO label: '{raw_label}' | Cleaned: '{clean_label}' | Mapped to encoder: '{soil_texture}'")
         "service": "Soil Texture & Crop Recommendation API",
         "endpoints": {
             "/predict": "POST",
@@ -193,9 +161,6 @@ async def root():
         }
     }
 
-        print(f"🔎 One-hot soil encoding: {soil_encoded} | Length: {len(soil_encoded)}")
-        if len(soil_encoded) != 4:
-            raise RuntimeError(f"❌ Soil encoder output length is {len(soil_encoded)}, expected 4. Check soil_encoder.pkl and categories.")
 @app.get("/health")
 async def health():
     return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
@@ -204,7 +169,7 @@ async def health():
 # Predict Endpoint
 # ===============================
 @app.post("/predict")
-async def predict(req: PredictRequest, authorization: str | None = Header(None)):
+async def predict(req: PredictRequest, authorization: Optional[str] = Header(None)):
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
 
@@ -235,7 +200,7 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
                 "soil_texture": soil_texture,
                 "recommended_crop": recommended_crop,
                 "companions": companions,
-                "avoid": avoids,
+                "avoids": avoids,
                 "confidence": crop_confidence,
                 "converted_values": {"N": N, "P": P, "K": K, "ph": req.ph}
             }
@@ -255,7 +220,7 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
                 "soil_texture": soil_texture,
                 "recommended_crop": recommended_crop,
                 "companions": companions,
-                "avoid": avoids,
+                "avoids": avoids,
                 "confidence": crop_confidence,
                 "converted_values": {"N": N, "P": P, "K": K, "ph": req.ph}
             }
@@ -292,7 +257,9 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
     # ------------ NPK Conversion ------------
     try:
         N, P, K = convert_mgkg_to_kgha(req.N, req.P, req.K, soil_texture.lower())
+        print(f"🔎 Converted NPK values: N={N}, P={P}, K={K}, pH={req.ph}")
     except Exception as e:
+        print(f"❌ NPK conversion error: {e}")
         raise HTTPException(status_code=400, detail=f"NPK conversion failed: {e}")
 
     companions = []
@@ -309,117 +276,65 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
         try:
             # Combine NPK, pH, and soil_encoded into 8 features
             input_features = np.hstack([[N, P, K, req.ph], soil_encoded])
+            print(f"🔎 XGBoost input_features: {input_features} | Shape: {input_features.shape}")
+            if not isinstance(input_features, np.ndarray) or input_features.shape[0] != 8:
+                raise RuntimeError(f"❌ XGBoost input_features shape is {input_features.shape}, expected (8,)")
             probs = xgb_model.predict_proba([input_features])[0]
+            print("🔎 Class probabilities:")
+            for idx, prob in enumerate(probs):
+                crop_name = le_label.inverse_transform([idx])[0]
+                print(f"  - {crop_name}: {prob:.2%}")
 
-            @app.post("/predict")
-            async def predict(req: PredictRequest, authorization: Optional[str] = Header(None)):
-                if not authorization or not authorization.startswith("Bearer "):
-                    raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+            print(f"🌾 Top 3 predictions:")
+            top3_indices = np.argsort(probs)[-3:][::-1]
+            for i, idx in enumerate(top3_indices, 1):
+                crop_name = le_label.inverse_transform([idx])[0]
+                print(f"  {i}. {crop_name}: {probs[idx]:.2%}")
 
-                token = authorization.split(" ")[1]
-                user_id = verify_supabase_token(token)
+            top_idx = int(np.argmax(probs))
+            top_prob = float(probs[top_idx])
 
-                # --- YOLO & Soil Texture ---
-                try:
-                    response = requests.get(req.imageUrl, timeout=15)
-                    response.raise_for_status()
-                    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
-                        tmp.write(response.content)
-                        tmp_path = tmp.name
-                    results = yolo_model.predict(tmp_path)
-                    result = results[0]
-                    if getattr(result, "probs", None) is None:
-                        soil_texture = "No soil detected"
-                        recommended_crop = "no_crop"
-                        companions = []
-                        avoids = []
-                        crop_confidence = None
-                        N, P, K = req.N, req.P, req.K
-                        return {
-                            "soil_texture": soil_texture,
-                            "recommended_crop": recommended_crop,
-                            "companions": companions,
-                            "avoids": avoids,
-                            "confidence": crop_confidence,
-                            "converted_values": {"N": N, "P": P, "K": K, "ph": req.ph}
-                        }
-                    raw_label = result.names[int(result.probs.top1)]
-                    clean_label = raw_label.replace("_Trained", "").strip()
-                    soil_texture = YOLO_TO_ENCODER.get(clean_label, "Loamy")
-                    print(f"🔎 YOLO label: '{raw_label}' | Cleaned: '{clean_label}' | Mapped to encoder: '{soil_texture}'")
-                    soil_encoded_result = soil_encoder.transform([[soil_texture]])
-                    if hasattr(soil_encoded_result, "toarray"):
-                        soil_encoded = soil_encoded_result.toarray()[0]
-                    else:
-                        soil_encoded = soil_encoded_result[0]
-                    print(f"🔎 One-hot soil encoding: {soil_encoded} | Length: {len(soil_encoded)}")
-                    if not isinstance(soil_encoded, (np.ndarray, list)) or len(soil_encoded) != 4:
-                        raise RuntimeError(f"❌ Soil encoder output length is {len(soil_encoded)}, expected 4. Check soil_encoder.pkl and categories.")
-                except Exception as e:
-                    print(f"❌ YOLO prediction error: {e}")
-                    traceback.print_exc()
-                    raise HTTPException(status_code=500, detail=f"YOLO prediction failed: {e}")
+            pred_crop = le_label.inverse_transform([top_idx])[0].strip().lower()
+            crop_confidence = top_prob
 
-                # --- NPK Conversion ---
-                try:
-                    N, P, K = convert_mgkg_to_kgha(req.N, req.P, req.K, soil_texture.lower())
-                except Exception as e:
-                    raise HTTPException(status_code=400, detail=f"NPK conversion failed: {e}")
+            if top_prob < CROP_TOP_PROB_THRESHOLD:
+                recommended_crop = "no_crop"
+            else:
+                recommended_crop = pred_crop
+                companions = companion_crops.get(pred_crop, [])
+                avoids = avoid_crops.get(pred_crop, [])
 
-                companions = []
-                avoids = []
-                crop_confidence = None
+        except Exception as e:
+            print("❌ XGBoost fallback:", e)
+            traceback.print_exc()
+            recommended_crop = "no_crop"
 
-                # --- XGBoost Prediction ---
-                if not (NPK_MIN <= N <= NPK_MAX and NPK_MIN <= P <= NPK_MAX and NPK_MIN <= K <= NPK_MAX):
-                    recommended_crop = "no_crop"
-                elif not (PH_MIN <= req.ph <= PH_MAX):
-                    recommended_crop = "no_crop"
-                else:
-                    try:
-                        input_features = np.hstack([[N, P, K, req.ph], soil_encoded])
-                        probs = xgb_model.predict_proba([input_features])[0]
-                        top_idx = int(np.argmax(probs))
-                        top_prob = float(probs[top_idx])
-                        pred_crop = le_label.inverse_transform([top_idx])[0].strip().lower()
-                        crop_confidence = top_prob
-                        if top_prob < CROP_TOP_PROB_THRESHOLD:
-                            recommended_crop = "no_crop"
-                        else:
-                            recommended_crop = pred_crop
-                            companions = companion_crops.get(pred_crop, [])
-                            avoids = avoid_crops.get(pred_crop, [])
-                    except Exception as e:
-                        print("❌ XGBoost fallback:", e)
-                        traceback.print_exc()
-                        recommended_crop = "no_crop"
+    # ------------ Save to Supabase ------------
+    try:
+        supabase.table("soil_results").insert({
+            "user_id": user_id,
+            "pot_name": req.pot_name,
+            "image_name": req.image_name or os.path.basename(req.imageUrl),
+            "image_url": req.imageUrl,
+            "prediction": soil_texture,
+            "recommended_crop": recommended_crop,
+            "n": req.N,
+            "p": req.P,
+            "k": req.K,
+            "ph_level": req.ph,
+            "companions": companions,
+            "avoids": avoids,
+            "crop_confidence": crop_confidence,
+            "created_at": datetime.utcnow().isoformat()
+        }).execute()
+    except Exception as e:
+        print("⚠️ Supabase insert failed:", e)
 
-                # --- Save to Supabase ---
-                try:
-                    supabase.table("soil_results").insert({
-                        "user_id": user_id,
-                        "pot_name": req.pot_name,
-                        "image_name": req.image_name or os.path.basename(req.imageUrl),
-                        "image_url": req.imageUrl,
-                        "prediction": soil_texture,
-                        "recommended_crop": recommended_crop,
-                        "n": req.N,
-                        "p": req.P,
-                        "k": req.K,
-                        "ph_level": req.ph,
-                        "companions": companions,
-                        "avoids": avoids,
-                        "crop_confidence": crop_confidence,
-                        "created_at": datetime.utcnow().isoformat()
-                    }).execute()
-                except Exception as e:
-                    print("⚠️ Supabase insert failed:", e)
-
-                return {
-                    "soil_texture": soil_texture,
-                    "recommended_crop": recommended_crop,
-                    "companions": companions,
-                    "avoids": avoids,
-                    "confidence": crop_confidence,
-                    "converted_values": {"N": N, "P": P, "K": K, "ph": req.ph}
-                }
+    return {
+        "soil_texture": soil_texture,
+        "recommended_crop": recommended_crop,
+        "companions": companions,
+        "avoids": avoids,
+        "confidence": crop_confidence,
+        "converted_values": {"N": N, "P": P, "K": K, "ph": req.ph}
+    }
