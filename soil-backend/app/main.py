@@ -16,14 +16,25 @@ from typing import Optional
 # ===============================
 # Load Environment Variables
 # ===============================
-env_path = Path(__file__).resolve().parents[1] / ".env"
-load_dotenv(dotenv_path=env_path)
+# Note: Since I cannot know the exact location of your file, 
+# I am keeping your original Path logic but assuming file is defined 
+# or can be substituted if run directly.
+# For production environments, it is often simpler to just use os.getcwd() 
+# or a fixed relative path.
+try:
+    env_path = Path(_file_).resolve().parents[1] / ".env"
+    load_dotenv(dotenv_path=env_path)
+except NameError:
+    # Fallback if _file_ is not defined (e.g., in a notebook or certain execution contexts)
+    load_dotenv()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
 SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET")
 
 if not SUPABASE_URL or not SUPABASE_KEY or not SUPABASE_JWT_SECRET:
+    # Use standard logging or print for initial checks
+    print("FATAL: Missing Supabase environment variables. Check your .env file.")
     raise RuntimeError("Missing Supabase environment variables")
 
 # ===============================
@@ -69,33 +80,55 @@ def verify_supabase_token(token: str) -> str:
 # ===============================
 # Load Models & Data
 # ===============================
-base_dir = Path(_file_).resolve().parent / "model"
+# Corrected base_dir definition using _file_
+try:
+    base_dir = Path(_file_).resolve().parent / "model"
+except NameError:
+    # Fallback for execution contexts where _file_ is not available
+    base_dir = Path(".").resolve() / "model"
+
 
 # YOLO model for soil detection (optional, for info)
-yolo_model = YOLO(str(base_dir / "best.pt"))
+try:
+    yolo_model = YOLO(str(base_dir / "best.pt"))
+except Exception as e:
+    print(f"Warning: Failed to load YOLO model: {e}")
+    yolo_model = None
 
 # XGB model for crop recommendation
-with open(base_dir / "model.pkl", "rb") as f:
-    xgb_model = pickle.load(f)
+try:
+    with open(base_dir / "model.pkl", "rb") as f:
+        xgb_model = pickle.load(f)
+except Exception as e:
+    print(f"FATAL: Failed to load XGB model: {e}")
+    raise
 
 # Label encoder
-with open(base_dir / "label_encoder.pkl", "rb") as f:
-    le_label = pickle.load(f)
+try:
+    with open(base_dir / "label_encoder.pkl", "rb") as f:
+        le_label = pickle.load(f)
+except Exception as e:
+    print(f"FATAL: Failed to load label encoder: {e}")
+    raise
 
 # Companion & avoid crop data
-records_df = pd.read_excel(base_dir / "avoidcrop.xlsx", engine="openpyxl")
-records_df.columns = records_df.columns.str.strip()
-records_df = records_df.dropna(subset=["Crops"])
-records_df["Crops"] = records_df["Crops"].str.strip().str.lower()
+try:
+    records_df = pd.read_excel(base_dir / "avoidcrop.xlsx", engine="openpyxl")
+    records_df.columns = records_df.columns.str.strip()
+    records_df = records_df.dropna(subset=["Crops"])
+    records_df["Crops"] = records_df["Crops"].str.strip().str.lower()
 
-companion_crops = {
-    row["Crops"]: [c.strip().lower() for c in str(row.get("Helps", "")).split(",") if c.strip()]
-    for _, row in records_df.iterrows()
-}
-avoid_crops = {
-    row["Crops"]: [c.strip().lower() for c in str(row.get("Avoid", "")).split(",") if c.strip()]
-    for _, row in records_df.iterrows()
-}
+    companion_crops = {
+        row["Crops"]: [c.strip().lower() for c in str(row.get("Helps", "")).split(",") if c.strip()]
+        for _, row in records_df.iterrows()
+    }
+    avoid_crops = {
+        row["Crops"]: [c.strip().lower() for c in str(row.get("Avoid", "")).split(",") if c.strip()]
+        for _, row in records_df.iterrows()
+    }
+except Exception as e:
+    print(f"FATAL: Failed to load companion/avoid crop data: {e}")
+    raise
 
 CROP_TOP_PROB_THRESHOLD = 0.70
 
@@ -134,24 +167,35 @@ async def predict(req: PredictRequest, authorization: Optional[str] = Header(Non
     # -------------------------
     # 2️⃣ YOLO Soil Detection (optional for info)
     # -------------------------
-    try:
-        response = requests.get(req.imageUrl, timeout=15)
-        response.raise_for_status()
-        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
-            tmp.write(response.content)
-            tmp_path = tmp.name
+    soil_texture = "No soil detected" # Default value
+    if yolo_model:
+        try:
+            response = requests.get(req.imageUrl, timeout=15)
+            response.raise_for_status()
+            
+            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+                tmp.write(response.content)
+                tmp_path = tmp.name
 
-        results = yolo_model.predict(tmp_path)
-        result = results[0]
-        if getattr(result, "probs", None) is None:
-            soil_texture = "No soil detected"
-        else:
-            raw = result.names[int(result.probs.top1)]
-            soil_texture = raw.replace("_Trained", "").strip()
+            results = yolo_model.predict(tmp_path)
+            result = results[0]
+            
+            # Clean up temporary file
+            os.remove(tmp_path) 
+            
+            if getattr(result, "probs", None) is None:
+                soil_texture = "No soil detected"
+            else:
+                raw = result.names[int(result.probs.top1)]
+                soil_texture = raw.replace("_Trained", "").strip()
 
-    except Exception as e:
-        soil_texture = "No soil detected"
-        print(f"YOLO warning: {e}")
+        except Exception as e:
+            # Clean up temporary file if it exists but failed later
+            if 'tmp_path' in locals() and os.path.exists(tmp_path):
+                 os.remove(tmp_path) 
+            
+            soil_texture = "Detection failed" # Changed from "No soil detected" for clarity of failure
+            print(f"YOLO warning: {e}")
 
     # -------------------------
     # 3️⃣ Crop Recommendation (XGB)
