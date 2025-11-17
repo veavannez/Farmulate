@@ -15,7 +15,7 @@ import asyncio
 # ===============================
 # Load Environment Variables
 # ===============================
-env_path = Path(__file__).resolve().parents[1] / ".env"
+env_path = Path(_file_).resolve().parents[1] / ".env"
 load_dotenv(dotenv_path=env_path)
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -59,7 +59,6 @@ def validate_env():
         missing.append("SUPABASE_KEY")
     if not SUPABASE_JWT_SECRET:
         missing.append("SUPABASE_JWT_SECRET")
-    
     if missing:
         raise RuntimeError(f"Missing environment variables: {', '.join(missing)}")
 
@@ -72,7 +71,6 @@ def validate_supabase_table(supabase: Client, table_name: str):
     except Exception as e:
         print(f"⚠️ Could not fetch table schema, skipping strict validation: {e}")
         columns = REQUIRED_COLUMNS
-
     missing_cols = [col for col in REQUIRED_COLUMNS if col not in columns]
     if missing_cols:
         raise RuntimeError(f"Missing columns in '{table_name}': {', '.join(missing_cols)}")
@@ -96,7 +94,7 @@ class PredictRequest(BaseModel):
         populate_by_name = True
 
 # ===============================
-# Helper Functions
+# Conversion Function
 # ===============================
 def convert_mgkg_to_kgha(N_mgkg, P_mgkg, K_mgkg, soil_type):
     bd_values = {"sandy": 1.6, "loamy": 1.3, "clay": 1.15, "silt": 1.25}
@@ -104,7 +102,7 @@ def convert_mgkg_to_kgha(N_mgkg, P_mgkg, K_mgkg, soil_type):
     if soil_type not in bd_values:
         raise ValueError(f"Invalid soil type: {soil_type}")
     bulk_density = bd_values[soil_type]
-    soil_mass = bulk_density * 30 * 1e5
+    soil_mass = bulk_density * 30 * 1e5  # 30 cm layer, convert to kg/ha
     N = N_mgkg * (soil_mass / 1e6)
     P = P_mgkg * (soil_mass / 1e6)
     K = K_mgkg * (soil_mass / 1e6)
@@ -120,7 +118,7 @@ def verify_supabase_token(token: str) -> str:
 # ===============================
 # Load Models & Data
 # ===============================
-base_dir = Path(__file__).resolve().parent / "model"
+base_dir = Path(_file_).resolve().parent / "model"
 
 yolo_model = YOLO(str(base_dir / "best.pt"))
 
@@ -133,9 +131,9 @@ with open(base_dir / "label_encoder.pkl", "rb") as f:
 with open(base_dir / "soil_encoder.pkl", "rb") as f:
     soil_encoder = pickle.load(f)
 
-data = pd.read_csv(base_dir / "reccocrop.csv")
-
-records_df = pd.read_excel(base_dir / "avoidcrop.xlsx", engine="openpyxl")
+# Companion & Avoid crops
+companion_file = base_dir.parent / "avoidcrop.xlsx"
+records_df = pd.read_excel(companion_file, engine="openpyxl")
 records_df.columns = records_df.columns.str.strip()
 records_df = records_df.dropna(subset=["Crops"])
 records_df["Crops"] = records_df["Crops"].str.strip().str.lower()
@@ -149,16 +147,13 @@ avoid_crops = {
     for _, row in records_df.iterrows()
 }
 
-# ===============================
 # Detection thresholds
-# ===============================
-CROP_TOP_PROB_THRESHOLD = 0.5 
+CROP_TOP_PROB_THRESHOLD = 0.5
 NPK_MIN = 0
 NPK_MAX = 500
 PH_MIN = 3.5
 PH_MAX = 9.5
 
-# Explicit mapping from YOLO labels to encoder categories
 YOLO_TO_ENCODER = {
     "Clay": "Clay",
     "clay": "Clay",
@@ -171,48 +166,32 @@ YOLO_TO_ENCODER = {
 }
 
 # ===============================
-# Health Check
+# Health & Debug Endpoints
 # ===============================
 @app.get("/")
 async def root():
-    return {
-        "status": "online",
-        "service": "Soil Texture & Crop Recommendation API",
-        "endpoints": {
-            "/predict": "POST",
-            "/docs": "GET"
-        }
-    }
+    return {"status": "online", "service": "Soil Texture & Crop Recommendation API", "endpoints": {"/predict": "POST", "/docs": "GET"}}
 
 @app.get("/health")
 async def health():
     return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
 
-# ===============================
-# Debug Endpoint for Encoder/Model Validation
-# ===============================
 @app.get("/debug")
 async def debug():
     debug_report = {}
-    # LabelEncoder classes
     try:
         debug_report["label_encoder_classes"] = le_label.classes_.tolist()
     except Exception as e:
         debug_report["label_encoder_classes"] = f"Error: {e}"
-
-    # XGBoost model n_classes_
     try:
         debug_report["xgb_model_n_classes"] = getattr(xgb_model, 'n_classes_', None)
     except Exception as e:
         debug_report["xgb_model_n_classes"] = f"Error: {e}"
-
-    # Check if counts match
     try:
         match = len(le_label.classes_) == getattr(xgb_model, 'n_classes_', None)
         debug_report["encoder_model_match"] = match
     except Exception as e:
         debug_report["encoder_model_match"] = f"Error: {e}"
-
     return debug_report
 
 # ===============================
@@ -222,12 +201,10 @@ async def debug():
 async def predict(req: PredictRequest, authorization: str | None = Header(None)):
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
-
     token = authorization.split(" ")[1]
     user_id = verify_supabase_token(token)
 
-    # ------------ YOLO INFERENCE ------------
-    soil_encoded = None  # Initialize for later use
+    # YOLO Soil Detection
     try:
         response = requests.get(req.imageUrl, timeout=15)
         response.raise_for_status()
@@ -240,146 +217,64 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
 
         if getattr(result, "probs", None) is None:
             soil_texture = "No soil detected"
-            recommended_crop = "no_crop"
-            companions = []
-            avoids = []
-            crop_confidence = None
-            N, P, K = req.N, req.P, req.K
-            print("YOLO: No soil detected")
-            return {
-                "soil_texture": soil_texture,
-                "recommended_crop": recommended_crop,
-                "companions": companions,
-                "avoid": avoids,
-                "confidence": crop_confidence,
-                "converted_values": {"N": N, "P": P, "K": K, "ph": req.ph}
-            }
-
-        top_idx = int(result.probs.top1)
-        raw_label = result.names[top_idx]
-        normalized_label = raw_label.strip().lower().replace(" ", "_")
-
-        if normalized_label in {"not_soil", "no_soil", "no_soil_detected"}:
-            soil_texture = "No soil detected"
-            recommended_crop = "no_crop"
-            companions = []
-            avoids = []
-            crop_confidence = None
-            N, P, K = req.N, req.P, req.K
-            print("YOLO: Not soil detected label")
-            return {
-                "soil_texture": soil_texture,
-                "recommended_crop": recommended_crop,
-                "companions": companions,
-                "avoid": avoids,
-                "confidence": crop_confidence,
-                "converted_values": {"N": N, "P": P, "K": K, "ph": req.ph}
-            }
-
-        # Normalize YOLO label and map explicitly to encoder categories
-        clean_label = raw_label.replace("_Trained", "").strip()
-        soil_texture = YOLO_TO_ENCODER.get(clean_label, YOLO_TO_ENCODER.get(clean_label.lower(), None))
-        if not soil_texture:
-            low = clean_label.lower()
-            if "clay" in low:
-                soil_texture = "Clay"
-            elif "loam" in low:
-                soil_texture = "Loamy"
-            elif "sand" in low:
-                soil_texture = "Sandy"
-            elif "silt" in low:
-                soil_texture = "Silt"
-            else:
-                soil_texture = "Loamy"
-
-        # One-hot encode soil texture for logging only
-        try:
-            soil_encoded_result = soil_encoder.transform([[soil_texture]])
-            if hasattr(soil_encoded_result, 'toarray'):
-                soil_encoded = soil_encoded_result.toarray()[0]
-            else:
-                soil_encoded = soil_encoded_result[0]
-        except Exception:
-            soil_encoded = None
-        print(f"YOLO: Detected soil texture: {soil_texture}, Encoded: {soil_encoded}")
+        else:
+            top_idx = int(result.probs.top1)
+            raw_label = result.names[top_idx]
+            clean_label = raw_label.replace("_Trained", "").strip()
+            soil_texture = YOLO_TO_ENCODER.get(clean_label, clean_label.title())
+            if not soil_texture:
+                low = clean_label.lower()
+                if "clay" in low:
+                    soil_texture = "Clay"
+                elif "loam" in low:
+                    soil_texture = "Loamy"
+                elif "sand" in low:
+                    soil_texture = "Sandy"
+                elif "silt" in low:
+                    soil_texture = "Silt"
+                else:
+                    soil_texture = "Loamy"
     except Exception as e:
         print(f"❌ YOLO prediction error: {e}")
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"YOLO prediction failed: {e}")
+        soil_texture = "Unknown"
 
-    # ------------ NPK Conversion ------------
+    # Convert mg/kg → kg/ha
     try:
-        N, P, K = convert_mgkg_to_kgha(req.N, req.P, req.K, soil_texture.lower())
+        N_kgha, P_kgha, K_kgha = convert_mgkg_to_kgha(req.N, req.P, req.K, soil_texture.lower())
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"NPK conversion failed: {e}")
 
+    # XGBoost Prediction
+    recommended_crop = "no_crop"
     companions = []
     avoids = []
     crop_confidence = None
 
-    # Reject if values are out of range
-    if not (NPK_MIN <= N <= NPK_MAX and NPK_MIN <= P <= NPK_MAX and NPK_MIN <= K <= NPK_MAX):
+    if not (NPK_MIN <= N_kgha <= NPK_MAX and NPK_MIN <= P_kgha <= NPK_MAX and NPK_MIN <= K_kgha <= NPK_MAX):
         recommended_crop = "no_crop"
     elif not (PH_MIN <= req.ph <= PH_MAX):
         recommended_crop = "no_crop"
     else:
-        # ------------ XGBOOST PREDICTION (8-FEATURE LOGIC) ------------
         try:
-            input_features = np.array([N, P, K, req.ph])
-            print(f"XGBoost: Input features: {input_features}")
-            probs = xgb_model.predict_proba([input_features])[0]
-            print(f"XGBoost: Raw probabilities: {probs}")
-
+            features = np.array([[N_kgha, P_kgha, K_kgha, req.ph]])
+            probs = xgb_model.predict_proba(features)[0]
             top_idx = int(np.argmax(probs))
             top_prob = float(probs[top_idx])
-
             try:
                 pred_crop = le_label.inverse_transform([top_idx])[0].strip().lower()
-            except Exception as e:
-                print(f"LabelEncoder mismatch or error: {e}")
+            except Exception:
                 pred_crop = "unknown_crop"
             crop_confidence = top_prob
 
-            # Log all probabilities for debugging
-            print("🔎 Class probabilities:")
-            for idx, prob in enumerate(probs):
-                try:
-                    crop_name = le_label.inverse_transform([idx])[0]
-                except Exception as e:
-                    crop_name = f"Label error: {e}"
-                print(f"  - {crop_name}: {prob:.2%}")
-
-            print(f"🌾 Top 3 predictions:")
-            top3_indices = np.argsort(probs)[-3:][::-1]
-            for i, idx in enumerate(top3_indices, 1):
-                try:
-                    crop_name = le_label.inverse_transform([idx])[0]
-                except Exception as e:
-                    crop_name = f"Label error: {e}"
-                print(f"  {i}. {crop_name}: {probs[idx]:.2%}")
-
-            if top_prob < CROP_TOP_PROB_THRESHOLD:
-                recommended_crop = "no_crop"
-                companions = []
-                avoids = []
-            else:
+            if top_prob >= CROP_TOP_PROB_THRESHOLD and pred_crop != "unknown_crop":
                 recommended_crop = pred_crop
-                if pred_crop == "unknown_crop":
-                    companions = []
-                    avoids = []
-                else:
-                    companions = companion_crops.get(pred_crop, [])
-                    avoids = avoid_crops.get(pred_crop, [])
-
+                companions = companion_crops.get(pred_crop, [])
+                avoids = avoid_crops.get(pred_crop, [])
         except Exception as e:
-            print("❌ XGBoost fallback:", e)
-            traceback.print_exc()
-            recommended_crop = "no_crop"
-            companions = []
-            avoids = []
-            crop_confidence = None
+            print(f"❌ XGBoost prediction error: {e}")
 
-    # ------------ Save to Supabase ------------
+    # Save to Supabase
     try:
         supabase.table("soil_results").insert({
             "user_id": user_id,
@@ -395,6 +290,7 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
             "companions": companions,
             "avoids": avoids,
             "crop_confidence": crop_confidence,
+            "converted_values": {"N_kg_ha": N_kgha, "P_kg_ha": P_kgha, "K_kg_ha": K_kgha},
             "created_at": datetime.utcnow().isoformat()
         }).execute()
     except Exception as e:
@@ -406,11 +302,12 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
         "companions": companions,
         "avoid": avoids,
         "confidence": crop_confidence,
-        "converted_values": {"N": N, "P": P, "K": K, "ph": req.ph}
+        "converted_values": {"N_kg_ha": N_kgha, "P_kg_ha": P_kgha, "K_kg_ha": K_kgha},
+        "raw_input": {"N_mg_kg": req.N, "P_mg_kg": req.P, "K_mg_kg": req.K, "ph": req.ph}
     }
 
 # ===============================
-# REALTIME LISTENER
+# Supabase Realtime Listener
 # ===============================
 async def soil_results_listener():
     channel = supabase.realtime.channel("public:soil_results")
