@@ -1,4 +1,4 @@
-rom fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from supabase import create_client, Client
