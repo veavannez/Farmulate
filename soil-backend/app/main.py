@@ -189,6 +189,33 @@ async def health():
     return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
 
 # ===============================
+# Debug Endpoint for Encoder/Model Validation
+# ===============================
+@app.get("/debug")
+async def debug():
+    debug_report = {}
+    # LabelEncoder classes
+    try:
+        debug_report["label_encoder_classes"] = le_label.classes_.tolist()
+    except Exception as e:
+        debug_report["label_encoder_classes"] = f"Error: {e}"
+
+    # XGBoost model n_classes_
+    try:
+        debug_report["xgb_model_n_classes"] = getattr(xgb_model, 'n_classes_', None)
+    except Exception as e:
+        debug_report["xgb_model_n_classes"] = f"Error: {e}"
+
+    # Check if counts match
+    try:
+        match = len(le_label.classes_) == getattr(xgb_model, 'n_classes_', None)
+        debug_report["encoder_model_match"] = match
+    except Exception as e:
+        debug_report["encoder_model_match"] = f"Error: {e}"
+
+    return debug_report
+
+# ===============================
 # Predict Endpoint
 # ===============================
 @app.post("/predict")
@@ -201,7 +228,6 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
 
     # ------------ YOLO INFERENCE ------------
     soil_encoded = None  # Initialize for later use
-    
     try:
         response = requests.get(req.imageUrl, timeout=15)
         response.raise_for_status()
@@ -219,6 +245,7 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
             avoids = []
             crop_confidence = None
             N, P, K = req.N, req.P, req.K
+            print("YOLO: No soil detected")
             return {
                 "soil_texture": soil_texture,
                 "recommended_crop": recommended_crop,
@@ -239,6 +266,7 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
             avoids = []
             crop_confidence = None
             N, P, K = req.N, req.P, req.K
+            print("YOLO: Not soil detected label")
             return {
                 "soil_texture": soil_texture,
                 "recommended_crop": recommended_crop,
@@ -264,14 +292,16 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
             else:
                 soil_texture = "Loamy"
 
-        # One-hot encode soil texture for XGBoost
-        soil_encoded_result = soil_encoder.transform([[soil_texture]])
-        # Handle both sparse matrix and dense array
-        if hasattr(soil_encoded_result, 'toarray'):
-            soil_encoded = soil_encoded_result.toarray()[0]
-        else:
-            soil_encoded = soil_encoded_result[0]
-
+        # One-hot encode soil texture for logging only
+        try:
+            soil_encoded_result = soil_encoder.transform([[soil_texture]])
+            if hasattr(soil_encoded_result, 'toarray'):
+                soil_encoded = soil_encoded_result.toarray()[0]
+            else:
+                soil_encoded = soil_encoded_result[0]
+        except Exception:
+            soil_encoded = None
+        print(f"YOLO: Detected soil texture: {soil_texture}, Encoded: {soil_encoded}")
     except Exception as e:
         print(f"❌ YOLO prediction error: {e}")
         traceback.print_exc()
@@ -295,26 +325,37 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
     else:
         # ------------ XGBOOST PREDICTION (8-FEATURE LOGIC) ------------
         try:
-            # Combine NPK, pH, and soil_encoded into 8 features
             input_features = np.array([N, P, K, req.ph])
+            print(f"XGBoost: Input features: {input_features}")
             probs = xgb_model.predict_proba([input_features])[0]
+            print(f"XGBoost: Raw probabilities: {probs}")
 
             top_idx = int(np.argmax(probs))
             top_prob = float(probs[top_idx])
 
-            pred_crop = le_label.inverse_transform([top_idx])[0].strip().lower()
+            try:
+                pred_crop = le_label.inverse_transform([top_idx])[0].strip().lower()
+            except Exception as e:
+                print(f"LabelEncoder mismatch or error: {e}")
+                pred_crop = "unknown_crop"
             crop_confidence = top_prob
 
             # Log all probabilities for debugging
             print("🔎 Class probabilities:")
             for idx, prob in enumerate(probs):
-                crop_name = le_label.inverse_transform([idx])[0]
+                try:
+                    crop_name = le_label.inverse_transform([idx])[0]
+                except Exception as e:
+                    crop_name = f"Label error: {e}"
                 print(f"  - {crop_name}: {prob:.2%}")
 
             print(f"🌾 Top 3 predictions:")
             top3_indices = np.argsort(probs)[-3:][::-1]
             for i, idx in enumerate(top3_indices, 1):
-                crop_name = le_label.inverse_transform([idx])[0]
+                try:
+                    crop_name = le_label.inverse_transform([idx])[0]
+                except Exception as e:
+                    crop_name = f"Label error: {e}"
                 print(f"  {i}. {crop_name}: {probs[idx]:.2%}")
 
             if top_prob < CROP_TOP_PROB_THRESHOLD:
@@ -323,8 +364,12 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
                 avoids = []
             else:
                 recommended_crop = pred_crop
-                companions = companion_crops.get(pred_crop, [])
-                avoids = avoid_crops.get(pred_crop, [])
+                if pred_crop == "unknown_crop":
+                    companions = []
+                    avoids = []
+                else:
+                    companions = companion_crops.get(pred_crop, [])
+                    avoids = avoid_crops.get(pred_crop, [])
 
         except Exception as e:
             print("❌ XGBoost fallback:", e)
