@@ -201,7 +201,6 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
 
     # ------------ YOLO INFERENCE ------------
     soil_encoded = None  # Initialize for later use
-    
     try:
         response = requests.get(req.imageUrl, timeout=15)
         response.raise_for_status()
@@ -212,7 +211,9 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
         results = yolo_model.predict(tmp_path)
         result = results[0]
 
+        print(f"YOLO detection result: {result}")
         if getattr(result, "probs", None) is None:
+            print("YOLO: No soil detected in image.")
             soil_texture = "No soil detected"
             recommended_crop = "no_crop"
             companions = []
@@ -231,8 +232,10 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
         top_idx = int(result.probs.top1)
         raw_label = result.names[top_idx]
         normalized_label = raw_label.strip().lower().replace(" ", "_")
+        print(f"YOLO raw label: {raw_label}, normalized: {normalized_label}")
 
         if normalized_label in {"not_soil", "no_soil", "no_soil_detected"}:
+            print("YOLO: Detected label is not soil.")
             soil_texture = "No soil detected"
             recommended_crop = "no_crop"
             companions = []
@@ -263,10 +266,10 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
                 soil_texture = "Silt"
             else:
                 soil_texture = "Loamy"
+        print(f"Final soil texture for NPK conversion: {soil_texture}")
 
-        # One-hot encode soil texture for XGBoost
+        # One-hot encode soil texture for XGBoost (not used in prediction, but kept for compatibility)
         soil_encoded_result = soil_encoder.transform([[soil_texture]])
-        # Handle both sparse matrix and dense array
         if hasattr(soil_encoded_result, 'toarray'):
             soil_encoded = soil_encoded_result.toarray()[0]
         else:
@@ -279,10 +282,16 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
 
     # ------------ NPK Conversion ------------
 
-    # Always convert NPK to kg/ha using soil texture
+    # Always convert NPK to kg/ha using soil texture (same logic as test_xgb.py)
     try:
-        N, P, K = convert_mgkg_to_kgha(req.N, req.P, req.K, soil_texture.lower())
+        N_raw = req.N
+        P_raw = req.P
+        K_raw = req.K
+        ph = req.ph
+        N, P, K = convert_mgkg_to_kgha(N_raw, P_raw, K_raw, soil_texture)
+        print(f"Converted NPK values: N={N}, P={P}, K={K}, pH={ph}")
     except Exception as e:
+        print(f"NPK conversion error: {e}")
         raise HTTPException(status_code=400, detail=f"NPK conversion failed: {e}")
 
     companions = []
@@ -291,14 +300,16 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
 
     # Reject if values are out of range
     if not (NPK_MIN <= N <= NPK_MAX and NPK_MIN <= P <= NPK_MAX and NPK_MIN <= K <= NPK_MAX):
+        print(f"Input out of range: N={N}, P={P}, K={K}, pH={ph}")
         recommended_crop = "no_crop"
-    elif not (PH_MIN <= req.ph <= PH_MAX):
+    elif not (PH_MIN <= ph <= PH_MAX):
+        print(f"pH out of range: {ph}")
         recommended_crop = "no_crop"
     else:
         # ------------ XGBOOST PREDICTION (4-FEATURE LOGIC) ------------
         try:
             # Debug: print input features
-            input_features = np.array([N, P, K, req.ph])
+            input_features = np.array([N, P, K, ph])
             print(f"XGBoost input features: {input_features}")
             probs = xgb_model.predict_proba([input_features])[0]
 
