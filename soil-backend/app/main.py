@@ -358,6 +358,3 @@ async def soil_results_listener():
 async def startup_event():
     asyncio.create_task(soil_results_listener())
     print("✅ Supabase Realtime listener for 'soil_results' enabled")
-
-
-[90.  42.  43.   6.5]
