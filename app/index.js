@@ -1,5 +1,6 @@
-import { useEffect, useState, useRef } from "react";
-import { useRouter, usePathname } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { usePathname, useRouter } from "expo-router";
+import { useEffect, useRef, useState } from "react";
 import SplashScreen from "../app/SplashScreen";
 import { useProfile } from "../context/profileContext";
 
@@ -14,30 +15,39 @@ export default function Index() {
   if (pathname !== "/") return null;
 
   useEffect(() => {
+    if (loadingProfile) return; // wait for profile
+
     let timeoutId;
-
-    const redirectUser = () => {
-      if (redirected.current) return;
-      redirected.current = true;
-
-      if (profile) {
-        console.log("➡️ Redirecting to (tabs)");
-        router.replace("/(tabs)");
-      } else {
-        console.log("➡️ Redirecting to LoginScreen");
-        router.replace("/LoginScreen");
+    (async () => {
+      const seen = await AsyncStorage.getItem("onboarding_seen");
+      if (!seen) {
+        if (!redirected.current) {
+          redirected.current = true;
+          router.replace("/onboarding");
+          setShowSplash(false);
+        }
+        return;
       }
-    };
 
-    // Wait for profile loading + splash screen
-    if (!loadingProfile) {
       timeoutId = setTimeout(() => {
-        redirectUser();
-        setShowSplash(false);
-      }, 1000); // short delay for smooth splash
-    }
+        if (redirected.current) return;
+        redirected.current = true;
 
-    return () => clearTimeout(timeoutId);
+        if (profile) {
+          console.log("➡️ Redirecting to (tabs)");
+          router.replace("/(tabs)");
+        } else {
+          console.log("➡️ Redirecting to LoginScreen");
+          router.replace("/LoginScreen");
+        }
+
+        setShowSplash(false);
+      }, 500);
+    })();
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, [profile, loadingProfile, router]);
 
   if (loadingProfile || showSplash) return <SplashScreen />;

@@ -1,0 +1,22 @@
+# Virtual environment
+.venv/
+env/
+
+# Env files
+*.env
+
+# Models (ignore all except our specific models)
+*.pt
+!app/model/best.pt
+*.pkl
+!app/model/model.pkl
+!app/model/label_encoder.pkl
+!app/model/soil_encoder.pkl
+*.csv
+!app/model/reccocrop.csv
+*.xlsx
+!app/model/avoidcrop.xlsx
+
+# Python cache
+__pycache__/
+*.pyc

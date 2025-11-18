@@ -43,6 +43,7 @@
       "reactCompiler": true
     },
     "extra": {
+      "apiBase": "https://soil-backend-cfwo.onrender.com",
       "eas": {
         "projectId": "97143fc3-b061-4caa-be6a-f536632fb130"
       }

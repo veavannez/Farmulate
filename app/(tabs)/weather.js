@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Dimensions } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import * as Location from "expo-location";
 import LottieView from "lottie-react-native";
+import { useEffect, useState } from "react";
+import { Dimensions, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 
 const { width } = Dimensions.get("window");
 const scale = (size) => Math.round((width / 375) * size);
@@ -12,6 +12,7 @@ export default function WeatherScreen() {
   const [weather, setWeather] = useState(null);
   const [loading, setLoading] = useState(true);
   const [localTime, setLocalTime] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
 
   // 🌴 Tropical weather codes (Philippines)
   const tropicalWeatherMap = {
@@ -104,6 +105,15 @@ export default function WeatherScreen() {
     }
   };
 
+  const onRefresh = async () => {
+    try {
+      setRefreshing(true);
+      await fetchWeather();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   useEffect(() => {
     fetchWeather();
     const interval = setInterval(fetchWeather, 15 * 60 * 1000);
@@ -132,7 +142,7 @@ export default function WeatherScreen() {
           source={require("../../assets/animations/spinner.json")}
           autoPlay
           loop
-          style={{ width: width * 0.25, height: width * 0.25 }}
+          style={{ width: width * 0.18, height: width * 0.18 }}
         />
         <Text style={styles.loadingText}>Loading...</Text>
       </View>
@@ -162,7 +172,17 @@ export default function WeatherScreen() {
   })();
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView
+      style={styles.container}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          tintColor="#2e7d32"
+          colors={["#2e7d32"]}
+        />
+      }
+    >
       {/* HEADER */}
       <LinearGradient colors={colorScheme.header} style={styles.header}>
         <Text style={styles.location}>{weather.location}</Text>
@@ -260,7 +280,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     flexWrap: "wrap",
     width: "100%",
-    lineHeight: scale(22),
+    lineHeight: scale(18),
   },
   time: { fontSize: scale(17), color: "#ddd" },
   advisory: {
