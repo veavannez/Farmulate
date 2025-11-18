@@ -127,6 +127,11 @@ yolo_model = YOLO(str(base_dir / "best.pt"))
 with open(base_dir / "model.pkl", "rb") as f:
     xgb_model = pickle.load(f)
 
+# 🔧 Patch for older pickled XGBoost models on newer xgboost versions
+if not hasattr(xgb_model, "use_label_encoder"):
+    xgb_model.use_label_encoder = False
+    print("🔧 Patched xgb_model.use_label_encoder = False")
+
 # Debug: see what the model expects
 print("✅ XGBoost model loaded. n_features_in_ =",
       getattr(xgb_model, "n_features_in_", "unknown"))
@@ -277,7 +282,7 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
                 soil_texture = "Loamy"
         print(f"Final soil texture for NPK conversion: {soil_texture}")
 
-        # One-hot encode soil texture for XGBoost
+        # One-hot encode soil texture (kept for compatibility/logging, not used in XGBoost)
         soil_encoded_result = soil_encoder.transform([[soil_texture]])
         if hasattr(soil_encoded_result, 'toarray'):
             soil_encoded = soil_encoded_result.toarray()[0]
@@ -315,26 +320,19 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
         print(f"pH out of range: {ph}, soil_texture={soil_texture}")
         recommended_crop = "no_crop"
     else:
-        # ------------ XGBOOST PREDICTION (NUMERIC + SOIL ONE-HOT) ------------
+        # ------------ XGBOOST PREDICTION (4 FEATURES: N, P, K, pH) ------------
         try:
-            # 1. Numeric features (converted NPK + pH)
+            # Model was trained on 4 features (N, P, K, pH), so only use those
             numeric_features = np.array([N, P, K, ph], dtype=float)
-
-            # 2. Ensure soil_encoded exists
-            if soil_encoded is None:
-                raise ValueError("soil_encoded is None but the model expects soil one-hot features")
-
-            # 3. Concatenate numeric + soil one-hot
-            full_features = np.concatenate([numeric_features, soil_encoded], axis=0)
-            full_features = full_features.reshape(1, -1)
+            X_input = numeric_features.reshape(1, -1)
 
             print("xgb_model.n_features_in_ =",
                   getattr(xgb_model, "n_features_in_", "unknown"))
-            print("XGBoost full_features shape:", full_features.shape)
-            print("XGBoost full_features values:", full_features)
+            print("XGBoost X_input shape:", X_input.shape)
+            print("XGBoost X_input values:", X_input)
 
-            # 4. Predict probabilities
-            probs = xgb_model.predict_proba(full_features)[0]
+            # Predict probabilities
+            probs = xgb_model.predict_proba(X_input)[0]
 
             top_idx = int(np.argmax(probs))
             top_prob = float(probs[top_idx])
