@@ -246,6 +246,7 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
         raw_label = result.names[top_idx]
         normalized_label = raw_label.strip().lower().replace(" ", "_")
         print(f"YOLO raw label: {raw_label}, normalized: {normalized_label}")
+        print("🔥 BACKEND VERSION: XGBOOST_4FEATURES_v2")
 
         if normalized_label in {"not_soil", "no_soil", "no_soil_detected"}:
             print("YOLO: Detected label is not soil.")
