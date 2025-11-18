@@ -24,6 +24,17 @@ with open(base_dir / "label_encoder.pkl", "rb") as f:
 # Example input (adjust values as needed)
 N_raw = 17
 P_raw = 20
+Optimizing tool selection...
+
+If you used the exact same inputs in your app and in test_xgb.py but did not get a crop recommendation from the app, here are the most likely causes:
+
+YOLO Soil Detection:
+
+The API uses YOLO to detect soil texture from the image. If YOLO fails to detect soil or returns "no soil," the API will not run XGBoost and will return "no_crop".
+The test script does not use YOLO; it uses a hardcoded soil texture.
+Input Path:
+
+In the API, the soil texture for NPK conversion comes 
 K_raw = 44
 ph = 4.9
 soil_texture = "Clay"  # must match encoder training
