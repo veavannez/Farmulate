@@ -45,7 +45,7 @@ REQUIRED_COLUMNS = [
     "prediction", "recommended_crop", "crop_confidence",
     "n", "p", "k", "ph_level",
     "companions", "avoids",
-    "created_at"
+    "created_at",
 ]
 
 # ===============================
@@ -59,9 +59,10 @@ def validate_env():
         missing.append("SUPABASE_KEY")
     if not SUPABASE_JWT_SECRET:
         missing.append("SUPABASE_JWT_SECRET")
-    
+
     if missing:
         raise RuntimeError(f"Missing environment variables: {', '.join(missing)}")
+
 
 def validate_supabase_table(supabase: Client, table_name: str):
     try:
@@ -76,6 +77,7 @@ def validate_supabase_table(supabase: Client, table_name: str):
     missing_cols = [col for col in REQUIRED_COLUMNS if col not in columns]
     if missing_cols:
         raise RuntimeError(f"Missing columns in '{table_name}': {', '.join(missing_cols)}")
+
 
 validate_env()
 validate_supabase_table(supabase, "soil_results")
@@ -110,9 +112,15 @@ def convert_mgkg_to_kgha(N_mgkg, P_mgkg, K_mgkg, soil_type):
     K = K_mgkg * (soil_mass / 1e6)
     return N, P, K
 
+
 def verify_supabase_token(token: str) -> str:
     try:
-        payload = jwt.decode(token, SUPABASE_JWT_SECRET, algorithms=["HS256"], options={"verify_aud": False})
+        payload = jwt.decode(
+            token,
+            SUPABASE_JWT_SECRET,
+            algorithms=["HS256"],
+            options={"verify_aud": False},
+        )
         return payload["sub"]
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
@@ -132,9 +140,16 @@ if not hasattr(xgb_model, "use_label_encoder"):
     xgb_model.use_label_encoder = False
     print("🔧 Patched xgb_model.use_label_encoder = False")
 
+# 🔧 Patch missing gpu_id so newer xgboost can call predict_proba without exploding
+if not hasattr(xgb_model, "gpu_id"):
+    xgb_model.gpu_id = -1  # CPU mode
+    print("🔧 Patched xgb_model.gpu_id = -1 (CPU mode)")
+
 # Debug: see what the model expects
-print("✅ XGBoost model loaded. n_features_in_ =",
-      getattr(xgb_model, "n_features_in_", "unknown"))
+print(
+    "✅ XGBoost model loaded. n_features_in_ =",
+    getattr(xgb_model, "n_features_in_", "unknown"),
+)
 
 with open(base_dir / "label_encoder.pkl", "rb") as f:
     le_label = pickle.load(f)
@@ -161,7 +176,7 @@ avoid_crops = {
 # ===============================
 # Detection thresholds
 # ===============================
-CROP_TOP_PROB_THRESHOLD = 0.5 
+CROP_TOP_PROB_THRESHOLD = 0.5
 NPK_MIN = 0
 NPK_MAX = 500
 PH_MIN = 3.5
@@ -189,9 +204,10 @@ async def root():
         "service": "Soil Texture & Crop Recommendation API",
         "endpoints": {
             "/predict": "POST",
-            "/docs": "GET"
-        }
+            "/docs": "GET",
+        },
     }
+
 
 @app.get("/health")
 async def health():
@@ -209,7 +225,10 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
     user_id = verify_supabase_token(token)
 
     print("\n===== Incoming Prediction Request =====")
-    print(f"Raw request: N={req.N}, P={req.P}, K={req.K}, pH={req.ph}, imageUrl={req.imageUrl}, pot_name={req.pot_name}")
+    print(
+        f"Raw request: N={req.N}, P={req.P}, K={req.K}, pH={req.ph}, "
+        f"imageUrl={req.imageUrl}, pot_name={req.pot_name}"
+    )
     soil_encoded = None  # Initialize for later use
 
     # ---------- YOLO SOIL TEXTURE DETECTION ----------
@@ -232,14 +251,17 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
             avoids = []
             crop_confidence = None
             N, P, K = req.N, req.P, req.K
-            print(f"Returning early: soil_texture={soil_texture}, NPK (raw)={N},{P},{K}, pH={req.ph}")
+            print(
+                f"Returning early: soil_texture={soil_texture}, "
+                f"NPK (raw)={N},{P},{K}, pH={req.ph}"
+            )
             return {
                 "soil_texture": soil_texture,
                 "recommended_crop": recommended_crop,
                 "companions": companions,
                 "avoid": avoids,
                 "confidence": crop_confidence,
-                "converted_values": {"N": N, "P": P, "K": K, "ph": req.ph}
+                "converted_values": {"N": N, "P": P, "K": K, "ph": req.ph},
             }
 
         top_idx = int(result.probs.top1)
@@ -255,14 +277,17 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
             avoids = []
             crop_confidence = None
             N, P, K = req.N, req.P, req.K
-            print(f"Returning early: soil_texture={soil_texture}, NPK (raw)={N},{P},{K}, pH={req.ph}")
+            print(
+                f"Returning early: soil_texture={soil_texture}, "
+                f"NPK (raw)={N},{P},{K}, pH={req.ph}"
+            )
             return {
                 "soil_texture": soil_texture,
                 "recommended_crop": recommended_crop,
                 "companions": companions,
                 "avoid": avoids,
                 "confidence": crop_confidence,
-                "converted_values": {"N": N, "P": P, "K": K, "ph": req.ph}
+                "converted_values": {"N": N, "P": P, "K": K, "ph": req.ph},
             }
 
         # Normalize YOLO label and map explicitly to encoder categories
@@ -282,9 +307,9 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
                 soil_texture = "Loamy"
         print(f"Final soil texture for NPK conversion: {soil_texture}")
 
-        # One-hot encode soil texture (kept for compatibility/logging, not used in XGBoost)
+        # One-hot encode soil texture (kept for compatibility/logging)
         soil_encoded_result = soil_encoder.transform([[soil_texture]])
-        if hasattr(soil_encoded_result, 'toarray'):
+        if hasattr(soil_encoded_result, "toarray"):
             soil_encoded = soil_encoded_result.toarray()[0]
         else:
             soil_encoded = soil_encoded_result[0]
@@ -301,9 +326,15 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
         P_raw = req.P
         K_raw = req.K
         ph = req.ph
-        print(f"Raw NPK before conversion: N={N_raw}, P={P_raw}, K={K_raw}, pH={ph}, soil_texture={soil_texture}")
+        print(
+            f"Raw NPK before conversion: N={N_raw}, P={P_raw}, K={K_raw}, "
+            f"pH={ph}, soil_texture={soil_texture}"
+        )
         N, P, K = convert_mgkg_to_kgha(N_raw, P_raw, K_raw, soil_texture)
-        print(f"Converted NPK values (kg/ha): N={N}, P={P}, K={K}, pH={ph}, soil_texture={soil_texture}")
+        print(
+            f"Converted NPK values (kg/ha): N={N}, P={P}, K={K}, "
+            f"pH={ph}, soil_texture={soil_texture}"
+        )
     except Exception as e:
         print(f"NPK conversion error: {e}")
         raise HTTPException(status_code=400, detail=f"NPK conversion failed: {e}")
@@ -314,7 +345,10 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
 
     # Reject if values are out of range
     if not (NPK_MIN <= N <= NPK_MAX and NPK_MIN <= P <= NPK_MAX and NPK_MIN <= K <= NPK_MAX):
-        print(f"Input out of range: N={N}, P={P}, K={K}, pH={ph}, soil_texture={soil_texture}")
+        print(
+            f"Input out of range: N={N}, P={P}, K={K}, pH={ph}, "
+            f"soil_texture={soil_texture}"
+        )
         recommended_crop = "no_crop"
     elif not (PH_MIN <= ph <= PH_MAX):
         print(f"pH out of range: {ph}, soil_texture={soil_texture}")
@@ -326,8 +360,10 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
             numeric_features = np.array([N, P, K, ph], dtype=float)
             X_input = numeric_features.reshape(1, -1)
 
-            print("xgb_model.n_features_in_ =",
-                  getattr(xgb_model, "n_features_in_", "unknown"))
+            print(
+                "xgb_model.n_features_in_ =",
+                getattr(xgb_model, "n_features_in_", "unknown"),
+            )
             print("XGBoost X_input shape:", X_input.shape)
             print("XGBoost X_input values:", X_input)
 
@@ -352,7 +388,10 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
                 crop_name = le_label.inverse_transform([idx])[0]
                 print(f"  {i}. {crop_name}: {probs[idx]:.2%}")
 
-            print(f"Final recommended crop: {pred_crop} (confidence: {crop_confidence:.2%})")
+            print(
+                f"Final recommended crop: {pred_crop} "
+                f"(confidence: {crop_confidence:.2%})"
+            )
             print(f"Companions: {companion_crops.get(pred_crop, [])}")
             print(f"Avoids: {avoid_crops.get(pred_crop, [])}")
 
@@ -369,7 +408,49 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
             avoids = []
             crop_confidence = None
 
-    print(f"Returning response: prediction={soil_texture}, recommended_crop={recommended_crop}, companions={companions}, avoids={avoids}, confidence={crop_confidence}")
+    # ===============================
+    # Insert into Supabase: soil_results
+    # ===============================
+    try:
+        try:
+            image_name = req.image_name or Path(req.imageUrl).name or "unknown"
+        except Exception:
+            image_name = "unknown"
+
+        row = {
+            "user_id": user_id,
+            "pot_name": req.pot_name,
+            "image_name": image_name,
+            "image_url": req.imageUrl,
+            "prediction": soil_texture,
+            "recommended_crop": recommended_crop,
+            "crop_confidence": crop_confidence,
+            # store RAW values here so HistoryScreen shows 17/20/44 and 4.9
+            "n": req.N,
+            "p": req.P,
+            "k": req.K,
+            "ph_level": req.ph,
+            "companions": companions,
+            "avoids": avoids,
+            "created_at": datetime.utcnow().isoformat(),
+        }
+
+        print("📝 Inserting row into soil_results:", row)
+        insert_res = supabase.table("soil_results").insert(row).execute()
+        if getattr(insert_res, "error", None):
+            print("⚠️ Supabase insert error:", insert_res.error)
+        else:
+            print("✅ Supabase insert success:", insert_res.data)
+
+    except Exception as e:
+        print("❌ Failed to insert into soil_results:", e)
+        traceback.print_exc()
+
+    print(
+        f"Returning response: prediction={soil_texture}, "
+        f"recommended_crop={recommended_crop}, companions={companions}, "
+        f"avoids={avoids}, confidence={crop_confidence}"
+    )
     return {
         "prediction": soil_texture,  # For frontend compatibility
         "soil_texture": soil_texture,
@@ -377,7 +458,7 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
         "companions": companions,
         "avoid": avoids,
         "confidence": crop_confidence,
-        "converted_values": {"N": N, "P": P, "K": K, "ph": req.ph}
+        "converted_values": {"N": N, "P": P, "K": K, "ph": req.ph},
     }
 
 # ===============================
@@ -388,10 +469,11 @@ async def soil_results_listener():
     channel.on(
         "postgres_changes",
         {"event": "INSERT", "schema": "public", "table": "soil_results"},
-        lambda payload: print("🟢 New prediction inserted:", payload["new"])
+        lambda payload: print("🟢 New prediction inserted:", payload["new"]),
     ).subscribe()
     while True:
         await asyncio.sleep(1)
+
 
 @app.on_event("startup")
 async def startup_event():
