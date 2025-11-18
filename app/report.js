@@ -6,14 +6,14 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Sharing from 'expo-sharing';
 import { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { useSoil } from "../context/soilContext";
 import { supabase } from "../lib/supabase";
@@ -36,6 +36,21 @@ function getPhCategory(pH) {
   if (pH >= 8.6 && pH <= 9.1) return { label: "Strongly Alkaline", color: COLORS.modLow };
   if (pH > 9.1) return { label: "Extremely Alkaline", color: COLORS.low };
   return { label: "Unknown", color: COLORS.low };
+}
+
+// Confidence bands for crop recommendation (model prediction)
+function getConfidenceBand(confPct) {
+  if (confPct == null || Number.isNaN(confPct)) return null;
+
+  if (confPct >= 85) {
+    return { label: "High", key: "high" };              // Green
+  } else if (confPct >= 70) {
+    return { label: "Moderately High", key: "mod-high" }; // Yellowish
+  } else if (confPct >= 50) {
+    return { label: "Moderate", key: "mod-low" };       // Orange
+  } else {
+    return { label: "Low", key: "low" };                // Red
+  }
 }
 
 const ReportScreen = () => {
@@ -91,12 +106,27 @@ const ReportScreen = () => {
       const phCategory = getPhCategory(phLevel);
       const recommendedCrop = soilData.recommendedCrop || "No recommendation";
       const isNoCrop = recommendedCrop.toString().toLowerCase() === "no_crop" || recommendedCrop === "No suitable crops";
-      const confPct = typeof soilData.confidence === 'number' ? Math.round(soilData.confidence * 100) : null;
+
+      const confPct = typeof soilData.confidence === 'number'
+        ? Math.round(soilData.confidence * 100)
+        : null;
+      const confBand = confPct !== null ? getConfidenceBand(confPct) : null;
+
       const recBoxClass = `recommendation-box${isNoCrop ? ' red' : ''}`;
       const recValueClass = `rec-value${isNoCrop ? ' red' : ''}`;
       const recText = isNoCrop ? 'No crop recommended' : recommendedCrop;
-      const confidenceHtml = confPct !== null ? `<div class="confidence">Confidence: ${confPct}%</div>` : '';
-      
+
+      const confidenceHtml = confBand
+        ? `
+          <div class="confidence">
+            <span class="confidence-label">Model confidence</span>
+            <span class="confidence-pill confidence-${confBand.key}">
+              ${confPct}% · ${confBand.label}
+            </span>
+          </div>
+        `
+        : '';
+
       // Safely handle companions and avoid arrays
       const companions = Array.isArray(soilData.companions) ? soilData.companions : [];
       const avoids = Array.isArray(soilData.avoid) ? soilData.avoid : [];
@@ -303,7 +333,50 @@ const ReportScreen = () => {
               color: #2e7d32;
             }
             .rec-value.red { color: #c62828; }
-            .confidence { font-size: 8px; color: #555; margin-top: 3px; font-weight: 600; }
+
+            /* Updated confidence styles */
+            .confidence {
+              font-size: 8px;
+              color: #555;
+              margin-top: 4px;
+              display: flex;
+              align-items: center;
+              gap: 4px;
+              flex-wrap: wrap;
+            }
+            .confidence-label {
+              font-weight: 600;
+              text-transform: uppercase;
+              letter-spacing: 0.4px;
+            }
+            .confidence-pill {
+              padding: 2px 6px;
+              border-radius: 999px;
+              font-size: 8px;
+              font-weight: 700;
+              border: 1px solid transparent;
+            }
+            .confidence-high {
+              background: #e8f5e9;
+              color: #1b5e20;
+              border-color: #2e7d32;
+            }
+            .confidence-mod-high {
+              background: #fff8e1;
+              color: #7c6f00;
+              border-color: #fbc02d;
+            }
+            .confidence-mod-low {
+              background: #fff3e0;
+              color: #e65100;
+              border-color: #fb8c00;
+            }
+            .confidence-low {
+              background: #ffebee;
+              color: #b71c1c;
+              border-color: #c62828;
+            }
+
             .companion-grid {
               display: grid;
               grid-template-columns: 1fr 1fr;
@@ -527,16 +600,16 @@ const ReportScreen = () => {
         const mapped = {
           potName: row.pot_name,
           soilTexture: sanitizeSoilTexture(row.prediction || 'Not detected'),
-            recommendedCrop: row.recommended_crop || 'No recommendation',
-            nitrogen: row.n ?? '',
-            phosphorus: row.p ?? '',
-            potassium: row.k ?? '',
-            phLevel: row.ph_level ?? '',
-            soilImage: row.image_url || null,
-            companions: row.companions || [],
-            avoid: row.avoids || [],
-            confidence: typeof row.crop_confidence === 'number' ? row.crop_confidence : null,
-            generatedAt: row.created_at || new Date().toISOString(),
+          recommendedCrop: row.recommended_crop || 'No recommendation',
+          nitrogen: row.n ?? '',
+          phosphorus: row.p ?? '',
+          potassium: row.k ?? '',
+          phLevel: row.ph_level ?? '',
+          soilImage: row.image_url || null,
+          companions: row.companions || [],
+          avoid: row.avoids || [],
+          confidence: typeof row.crop_confidence === 'number' ? row.crop_confidence : null,
+          generatedAt: row.created_at || new Date().toISOString(),
         };
         setSoilData(mapped);
       } catch (e) {
@@ -697,16 +770,40 @@ const ReportScreen = () => {
           <MaterialCommunityIcons name="repeat" size={22} color="#2e7d32" /> Crop Rotation
         </Text>
         {(() => {
-          const isNoCrop = (soilData.recommendedCrop || "").toString().toLowerCase() === "no_crop" || soilData.recommendedCrop === "No suitable crops";
-          const confPct = typeof soilData.confidence === 'number' ? Math.round(soilData.confidence * 100) : null;
+          const isNoCrop =
+            (soilData.recommendedCrop || "").toString().toLowerCase() === "no_crop" ||
+            soilData.recommendedCrop === "No suitable crops";
+
+          const rawConf = typeof soilData.confidence === "number" ? soilData.confidence : null;
+          const confPct = rawConf !== null ? Math.round(rawConf * 100) : null;
+          const confBand = confPct !== null ? getConfidenceBand(confPct) : null;
+
+          let confidencePillStyle = [styles.confidencePill];
+          if (confBand) {
+            if (confBand.key === "high") confidencePillStyle.push(styles.confidenceHigh);
+            else if (confBand.key === "mod-high") confidencePillStyle.push(styles.confidenceModHigh);
+            else if (confBand.key === "mod-low") confidencePillStyle.push(styles.confidenceModLow);
+            else if (confBand.key === "low") confidencePillStyle.push(styles.confidenceLow);
+          }
+
           return (
             <View style={isNoCrop ? styles.highlightCardRed : styles.highlightCard}>
               <Text style={styles.subHeader}>Recommended Crop</Text>
               <View style={isNoCrop ? styles.nextCropBoxRed : styles.nextCropBox}>
-                <Text style={styles.nextCropText}>{isNoCrop ? "No crop recommended" : soilData.recommendedCrop}</Text>
+                <Text style={styles.nextCropText}>
+                  {isNoCrop ? "No crop recommended" : soilData.recommendedCrop}
+                </Text>
               </View>
-              {confPct !== null && (
-                <Text style={styles.confidenceText}>Confidence: {confPct}%</Text>
+
+              {confBand && (
+                <View style={styles.confidenceRow}>
+                  <Text style={styles.confidenceCaption}>Model confidence</Text>
+                  <View style={confidencePillStyle}>
+                    <Text style={styles.confidencePillText}>
+                      {confPct}% · {confBand.label}
+                    </Text>
+                  </View>
+                </View>
               )}
             </View>
           );
@@ -796,9 +893,8 @@ const ReportScreen = () => {
 export default ReportScreen;
 
 // ------------------------------
-// Styles remain unchanged
+// Styles
 const styles = StyleSheet.create({
-
   container: { flex: 1, backgroundColor: "#f5f5f5" },
   header: { flexDirection: "row", backgroundColor: "#002d00", justifyContent: "center", alignItems: "center", height: 65, paddingHorizontal: 16 },
   backButtonFloat: { 
@@ -851,7 +947,7 @@ const styles = StyleSheet.create({
   nextCropBox: { marginTop: 8, backgroundColor: "#2e7d32", paddingVertical: 12, paddingHorizontal: 60, borderRadius: 8 },
   nextCropBoxRed: { marginTop: 8, backgroundColor: "#c62828", paddingVertical: 12, paddingHorizontal: 60, borderRadius: 8 },
   nextCropText: { fontSize: 20, fontWeight: "bold", color: "#fff", textAlign: "center" },
-  confidenceText: { marginTop: 8, fontSize: 12, color: "#555", fontWeight: "600" },
+  confidenceText: { marginTop: 8, fontSize: 12, color: "#555", fontWeight: "600" }, // kept for backwards compatibility (not used now)
   companionHeaderRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 8 },
   companionListRow: { flexDirection: "row", justifyContent: "space-between" },
   goodCropItem: { backgroundColor: "#e8f5e9", color: "#2e7d32", paddingVertical: 5, marginVertical: 2, borderRadius: 4, textAlign: "center", fontWeight: "500", marginHorizontal: 10 },
@@ -861,4 +957,47 @@ const styles = StyleSheet.create({
   empty: { fontSize: 16, color: "#555" },
   button: { marginTop: 10, backgroundColor: "#2e7d32", padding: 10, borderRadius: 8 },
   buttonText: { color: "#fff", fontWeight: "600" },
+
+  // New confidence UI styles for on-screen card
+  confidenceRow: {
+    marginTop: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  confidenceCaption: {
+    fontSize: 12,
+    color: "#555",
+    fontWeight: "600",
+    marginRight: 8,
+  },
+  confidencePill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "transparent",
+    backgroundColor: "#e0e0e0",
+  },
+  confidencePillText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#1a1a1a",
+  },
+  confidenceHigh: {
+    backgroundColor: "#e8f5e9",
+    borderColor: "#2e7d32",
+  },
+  confidenceModHigh: {
+    backgroundColor: "#fff8e1",
+    borderColor: "#fbc02d",
+  },
+  confidenceModLow: {
+    backgroundColor: "#fff3e0",
+    borderColor: "#fb8c00",
+  },
+  confidenceLow: {
+    backgroundColor: "#ffebee",
+    borderColor: "#c62828",
+  },
 });

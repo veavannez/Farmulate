@@ -1,7 +1,14 @@
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Dimensions, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import {
+  ActivityIndicator,
+  Dimensions,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { useSoil } from "../context/soilContext";
 import { supabase } from "../lib/supabase";
 import { getPhCategory } from "../utils/helpers";
@@ -19,17 +26,13 @@ const SoilNutrientsCard = () => {
     try {
       setLoading(true);
       setError(null);
-      // Prefer context data (immediate display after creating a report)
-      if (soilContextData) {
-        setData(soilContextData);
-        return;
-      }
 
-      // Otherwise, fetch latest from Supabase
+      // Always check Supabase first (source of truth)
       const {
         data: { user },
         error: userError,
       } = await supabase.auth.getUser();
+
       if (userError) throw userError;
       if (!user) throw new Error("User not logged in");
 
@@ -43,10 +46,26 @@ const SoilNutrientsCard = () => {
 
       if (supaError) throw supaError;
 
-      setData(result);
+      if (result) {
+        // Use latest row from DB
+        setData(result);
+      } else if (soilContextData) {
+        // Fallback: no DB rows yet, but we have in-memory context
+        setData(soilContextData);
+      } else {
+        // Nothing at all
+        setData(null);
+      }
     } catch (err) {
       console.error("Failed to fetch soil report:", err);
       setError("Failed to load soil report");
+
+      // If there is an error but we still have context data, show that
+      if (soilContextData) {
+        setData(soilContextData);
+      } else {
+        setData(null);
+      }
     } finally {
       setLoading(false);
     }
@@ -56,16 +75,24 @@ const SoilNutrientsCard = () => {
     fetchLatestReport();
   }, [fetchLatestReport]);
 
-  if (loading)
+  if (loading) {
     return (
-      <View style={[styles.panel, { width: SCREEN_WIDTH - 40, justifyContent: "center", alignItems: "center" }]}>
+      <View
+        style={[
+          styles.panel,
+          { width: SCREEN_WIDTH - 40, justifyContent: "center", alignItems: "center" },
+        ]}
+      >
         <ActivityIndicator size="large" color="#2e7d32" />
-        <Text style={{ marginTop: 8, color: "#555", fontWeight: "600" }}>Loading soil report...</Text>
+        <Text style={{ marginTop: 8, color: "#555", fontWeight: "600" }}>
+          Loading soil report...
+        </Text>
       </View>
     );
+  }
 
   // When there is an actual error (network/auth), show refresh. Otherwise, handle "no reports" separately.
-  if (error && !data)
+  if (error && !data) {
     return (
       <View style={[styles.panel, { width: SCREEN_WIDTH - 40 }]}>
         <View style={styles.emptyContainer}>
@@ -77,6 +104,7 @@ const SoilNutrientsCard = () => {
         </View>
       </View>
     );
+  }
 
   // Normalize nutrient values from either DB (n,p,k,ph_level) or context (nitrogen,phosphorus,potassium,phLevel)
   const nitrogenValue = data?.n ?? data?.nitrogen ?? null;
@@ -86,12 +114,15 @@ const SoilNutrientsCard = () => {
 
   const noNutrientValues =
     !data ||
-    (nitrogenValue == null && phosphorusValue == null && potassiumValue == null && phValue == null);
+    (nitrogenValue == null &&
+      phosphorusValue == null &&
+      potassiumValue == null &&
+      phValue == null);
 
   if (noNutrientValues) {
     return (
       <View style={[styles.panel, { width: SCREEN_WIDTH - 40 }]}>
-        <View style={[styles.card, styles.emptyCardTheme]}> 
+        <View style={[styles.card, styles.emptyCardTheme]}>
           <Text style={styles.emptyText}>No reports found.</Text>
           <TouchableOpacity
             onPress={() => router.push("/(tabs)/main")}
@@ -104,14 +135,39 @@ const SoilNutrientsCard = () => {
       </View>
     );
   }
+
   // Use category color for pH to get a slightly darker/meaningful shade
   const phCategory = getPhCategory(Number(phValue));
 
   const nutrients = [
-    { label: "Nitrogen", unit: "mg/kg", value: nitrogenValue, color: "#388e3c", icon: <Ionicons name="leaf" size={28} color="#fff" /> },
-    { label: "Phosphorus", unit: "mg/kg", value: phosphorusValue, color: "#43a047", icon: <MaterialCommunityIcons name="beaker-outline" size={28} color="#fff" /> },
-    { label: "Potassium", unit: "mg/kg", value: potassiumValue, color: "#66bb6a", icon: <MaterialCommunityIcons name="flask" size={28} color="#fff" /> },
-    { label: "pH Level", unit: null, value: phValue, color: phCategory.color || "#4caf50", icon: <Ionicons name="water" size={28} color="#fff" /> },
+    {
+      label: "Nitrogen",
+      unit: "mg/kg",
+      value: nitrogenValue,
+      color: "#388e3c",
+      icon: <Ionicons name="leaf" size={28} color="#fff" />,
+    },
+    {
+      label: "Phosphorus",
+      unit: "mg/kg",
+      value: phosphorusValue,
+      color: "#43a047",
+      icon: <MaterialCommunityIcons name="beaker-outline" size={28} color="#fff" />,
+    },
+    {
+      label: "Potassium",
+      unit: "mg/kg",
+      value: potassiumValue,
+      color: "#66bb6a",
+      icon: <MaterialCommunityIcons name="flask" size={28} color="#fff" />,
+    },
+    {
+      label: "pH Level",
+      unit: null,
+      value: phValue,
+      color: phCategory.color || "#4caf50",
+      icon: <Ionicons name="water" size={28} color="#fff" />,
+    },
   ];
 
   const renderCard = (n, idx) => (
@@ -129,9 +185,14 @@ const SoilNutrientsCard = () => {
   return (
     <View style={[styles.panel, { width: SCREEN_WIDTH - 40 }]}>
       <View style={styles.lastChecked}>
-        <Text style={styles.lastCheckedText}>🪴 {data.potName || data.pot_name || "Unnamed Pot"}</Text>
         <Text style={styles.lastCheckedText}>
-          ⏱ Last Checked: {data.generatedAt || data.created_at ? new Date(data.generatedAt || data.created_at).toLocaleString() : "N/A"}
+          🪴 {data.potName || data.pot_name || "Unnamed Pot"}
+        </Text>
+        <Text style={styles.lastCheckedText}>
+          ⏱ Last Checked:{" "}
+          {data.generatedAt || data.created_at
+            ? new Date(data.generatedAt || data.created_at).toLocaleString()
+            : "N/A"}
         </Text>
         <TouchableOpacity onPress={fetchLatestReport} style={styles.refreshButtonSmall}>
           <Ionicons name="refresh" size={20} color="#fff" />
@@ -185,7 +246,13 @@ const styles = StyleSheet.create({
   },
   value: { fontSize: 36, fontWeight: "900", color: "#fff", marginTop: 6 },
   label: { fontSize: 16, fontWeight: "700", color: "#fff", textAlign: "center", marginTop: 2 },
-  unitText: { fontSize: 12, fontWeight: "600", color: "rgba(255,255,255,0.85)", textAlign: "center", marginTop: 2 },
+  unitText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "rgba(255,255,255,0.85)",
+    textAlign: "center",
+    marginTop: 2,
+  },
   lastChecked: {
     marginBottom: 16,
     paddingVertical: 12,
@@ -208,7 +275,12 @@ const styles = StyleSheet.create({
     backgroundColor: "#1b5e20",
     borderRadius: 12,
   },
-  phCategoryText: { marginTop: 0, color: "rgba(255,255,255,0.9)", fontWeight: "700", fontSize: 12 },
+  phCategoryText: {
+    marginTop: 0,
+    color: "rgba(255,255,255,0.9)",
+    fontWeight: "700",
+    fontSize: 12,
+  },
   emptyContainer: { height: 120, justifyContent: "center", alignItems: "center" },
   emptyText: { fontSize: 18, fontWeight: "600", color: "#555" },
   refreshButton: {

@@ -249,6 +249,8 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
         result = results[0]
 
         print(f"YOLO detection result: {result}")
+
+        # ---------- CASE 1: YOLO returned no probabilities (no soil) ----------
         if getattr(result, "probs", None) is None:
             print("YOLO: No soil detected in image.")
             soil_texture = "No soil detected"
@@ -257,10 +259,46 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
             avoids = []
             crop_confidence = None
             N, P, K = req.N, req.P, req.K
+
             print(
-                f"Returning early: soil_texture={soil_texture}, "
+                f"No-probs path: soil_texture={soil_texture}, "
                 f"NPK (raw)={N},{P},{K}, pH={req.ph}"
             )
+
+            # 🔹 NEW: Save this no-soil result to Supabase
+            try:
+                try:
+                    image_name = req.image_name or Path(req.imageUrl).name or "unknown"
+                except Exception:
+                    image_name = "unknown"
+
+                row = {
+                    "user_id": user_id,
+                    "pot_name": req.pot_name,
+                    "image_name": image_name,
+                    "image_url": req.imageUrl,
+                    "prediction": soil_texture,
+                    "recommended_crop": recommended_crop,
+                    "crop_confidence": crop_confidence,
+                    "n": req.N,
+                    "p": req.P,
+                    "k": req.K,
+                    "ph_level": req.ph,
+                    "companions": companions,
+                    "avoids": avoids,
+                    "created_at": datetime.utcnow().isoformat(),
+                }
+
+                print("📝 Inserting NO-SOIL row into soil_results (no probs):", row)
+                insert_res = supabase.table("soil_results").insert(row).execute()
+                if getattr(insert_res, "error", None):
+                    print("⚠️ Supabase insert error (no probs):", insert_res.error)
+                else:
+                    print("✅ Supabase insert success (no probs):", insert_res.data)
+            except Exception as e:
+                print("❌ Failed to insert no-soil (no probs) row:", e)
+                traceback.print_exc()
+
             return {
                 "soil_texture": soil_texture,
                 "recommended_crop": recommended_crop,
@@ -275,6 +313,7 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
         normalized_label = raw_label.strip().lower().replace(" ", "_")
         print(f"YOLO raw label: {raw_label}, normalized: {normalized_label}")
 
+        # ---------- CASE 2: YOLO explicitly says not_soil ----------
         if normalized_label in {"not_soil", "no_soil", "no_soil_detected"}:
             print("YOLO: Detected label is not soil.")
             soil_texture = "No soil detected"
@@ -283,10 +322,46 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
             avoids = []
             crop_confidence = None
             N, P, K = req.N, req.P, req.K
+
             print(
-                f"Returning early: soil_texture={soil_texture}, "
+                f"not_soil path: soil_texture={soil_texture}, "
                 f"NPK (raw)={N},{P},{K}, pH={req.ph}"
             )
+
+            # 🔹 NEW: Save this no-soil result to Supabase
+            try:
+                try:
+                    image_name = req.image_name or Path(req.imageUrl).name or "unknown"
+                except Exception:
+                    image_name = "unknown"
+
+                row = {
+                    "user_id": user_id,
+                    "pot_name": req.pot_name,
+                    "image_name": image_name,
+                    "image_url": req.imageUrl,
+                    "prediction": soil_texture,
+                    "recommended_crop": recommended_crop,
+                    "crop_confidence": crop_confidence,
+                    "n": req.N,
+                    "p": req.P,
+                    "k": req.K,
+                    "ph_level": req.ph,
+                    "companions": companions,
+                    "avoids": avoids,
+                    "created_at": datetime.utcnow().isoformat(),
+                }
+
+                print("📝 Inserting NO-SOIL row into soil_results (not_soil):", row)
+                insert_res = supabase.table("soil_results").insert(row).execute()
+                if getattr(insert_res, "error", None):
+                    print("⚠️ Supabase insert error (not_soil):", insert_res.error)
+                else:
+                    print("✅ Supabase insert success (not_soil):", insert_res.data)
+            except Exception as e:
+                print("❌ Failed to insert no-soil (not_soil) row:", e)
+                traceback.print_exc()
+
             return {
                 "soil_texture": soil_texture,
                 "recommended_crop": recommended_crop,
@@ -296,7 +371,7 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
                 "converted_values": {"N": N, "P": P, "K": K, "ph": req.ph},
             }
 
-        # Normalize YOLO label and map explicitly to encoder categories
+        # ---------- Normal YOLO soil classification ----------
         clean_label = raw_label.replace("_Trained", "").strip()
         soil_texture = YOLO_TO_ENCODER.get(clean_label, YOLO_TO_ENCODER.get(clean_label.lower(), None))
         if not soil_texture:
@@ -313,7 +388,6 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
                 soil_texture = "Loamy"
         print(f"Final soil texture for NPK conversion: {soil_texture}")
 
-        # One-hot encode soil texture (kept for compatibility/logging)
         soil_encoded_result = soil_encoder.transform([[soil_texture]])
         if hasattr(soil_encoded_result, "toarray"):
             soil_encoded = soil_encoded_result.toarray()[0]
@@ -326,7 +400,7 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"YOLO prediction failed: {e}")
 
-    # ------------ NPK Conversion ------------
+    # ------------ NPK Conversion (for true-soil cases) ------------
     try:
         N_raw = req.N
         P_raw = req.P
@@ -362,7 +436,6 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
     else:
         # ------------ XGBOOST PREDICTION (4 FEATURES: N, P, K, pH) ------------
         try:
-            # Model was trained on 4 features (N, P, K, pH), so only use those
             numeric_features = np.array([N, P, K, ph], dtype=float)
             X_input = numeric_features.reshape(1, -1)
 
@@ -373,7 +446,6 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
             print("XGBoost X_input shape:", X_input.shape)
             print("XGBoost X_input values:", X_input)
 
-            # Predict probabilities
             probs = xgb_model.predict_proba(X_input)[0]
 
             top_idx = int(np.argmax(probs))
@@ -382,7 +454,6 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
             pred_crop = le_label.inverse_transform([top_idx])[0].strip().lower()
             crop_confidence = top_prob
 
-            # Log all probabilities for debugging
             print("🔎 Class probabilities:")
             for idx, prob in enumerate(probs):
                 crop_name = le_label.inverse_transform([idx])[0]
@@ -401,7 +472,6 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
             print(f"Companions: {companion_crops.get(pred_crop, [])}")
             print(f"Avoids: {avoid_crops.get(pred_crop, [])}")
 
-            # Final result
             recommended_crop = pred_crop
             companions = companion_crops.get(pred_crop, [])
             avoids = avoid_crops.get(pred_crop, [])
@@ -415,7 +485,7 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
             crop_confidence = None
 
     # ===============================
-    # Insert into Supabase: soil_results
+    # Insert into Supabase: soil_results (normal soil cases)
     # ===============================
     try:
         try:
@@ -431,7 +501,6 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
             "prediction": soil_texture,
             "recommended_crop": recommended_crop,
             "crop_confidence": crop_confidence,
-            # store RAW values here so HistoryScreen shows 17/20/44 and 4.9
             "n": req.N,
             "p": req.P,
             "k": req.K,
@@ -458,7 +527,7 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
         f"avoids={avoids}, confidence={crop_confidence}"
     )
     return {
-        "prediction": soil_texture,  # For frontend compatibility
+        "prediction": soil_texture,
         "soil_texture": soil_texture,
         "recommended_crop": recommended_crop,
         "companions": companions,
