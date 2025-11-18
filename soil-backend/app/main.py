@@ -145,6 +145,12 @@ if not hasattr(xgb_model, "gpu_id"):
     xgb_model.gpu_id = -1  # CPU mode
     print("🔧 Patched xgb_model.gpu_id = -1 (CPU mode)")
 
+# 🔧 Patch missing predictor attribute expected by newer xgboost
+if not hasattr(xgb_model, "predictor"):
+    # "auto" is the default in modern xgboost, safe for CPU models
+    xgb_model.predictor = "auto"
+    print("🔧 Patched xgb_model.predictor = 'auto'")
+
 # Debug: see what the model expects
 print(
     "✅ XGBoost model loaded. n_features_in_ =",
