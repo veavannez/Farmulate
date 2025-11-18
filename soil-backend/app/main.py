@@ -127,6 +127,10 @@ yolo_model = YOLO(str(base_dir / "best.pt"))
 with open(base_dir / "model.pkl", "rb") as f:
     xgb_model = pickle.load(f)
 
+# Debug: see what the model expects
+print("✅ XGBoost model loaded. n_features_in_ =",
+      getattr(xgb_model, "n_features_in_", "unknown"))
+
 with open(base_dir / "label_encoder.pkl", "rb") as f:
     le_label = pickle.load(f)
 
@@ -199,8 +203,11 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
     token = authorization.split(" ")[1]
     user_id = verify_supabase_token(token)
 
-    # ------------ YOLO INFERENCE ------------
+    print("\n===== Incoming Prediction Request =====")
+    print(f"Raw request: N={req.N}, P={req.P}, K={req.K}, pH={req.ph}, imageUrl={req.imageUrl}, pot_name={req.pot_name}")
     soil_encoded = None  # Initialize for later use
+
+    # ---------- YOLO SOIL TEXTURE DETECTION ----------
     try:
         response = requests.get(req.imageUrl, timeout=15)
         response.raise_for_status()
@@ -220,6 +227,7 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
             avoids = []
             crop_confidence = None
             N, P, K = req.N, req.P, req.K
+            print(f"Returning early: soil_texture={soil_texture}, NPK (raw)={N},{P},{K}, pH={req.ph}")
             return {
                 "soil_texture": soil_texture,
                 "recommended_crop": recommended_crop,
@@ -242,6 +250,7 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
             avoids = []
             crop_confidence = None
             N, P, K = req.N, req.P, req.K
+            print(f"Returning early: soil_texture={soil_texture}, NPK (raw)={N},{P},{K}, pH={req.ph}")
             return {
                 "soil_texture": soil_texture,
                 "recommended_crop": recommended_crop,
@@ -268,12 +277,13 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
                 soil_texture = "Loamy"
         print(f"Final soil texture for NPK conversion: {soil_texture}")
 
-        # One-hot encode soil texture for XGBoost (not used in prediction, but kept for compatibility)
+        # One-hot encode soil texture for XGBoost
         soil_encoded_result = soil_encoder.transform([[soil_texture]])
         if hasattr(soil_encoded_result, 'toarray'):
             soil_encoded = soil_encoded_result.toarray()[0]
         else:
             soil_encoded = soil_encoded_result[0]
+        print(f"soil_encoded (one-hot): {soil_encoded}")
 
     except Exception as e:
         print(f"❌ YOLO prediction error: {e}")
@@ -281,15 +291,14 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
         raise HTTPException(status_code=500, detail=f"YOLO prediction failed: {e}")
 
     # ------------ NPK Conversion ------------
-
-    # Always convert NPK to kg/ha using soil texture (same logic as test_xgb.py)
     try:
         N_raw = req.N
         P_raw = req.P
         K_raw = req.K
         ph = req.ph
+        print(f"Raw NPK before conversion: N={N_raw}, P={P_raw}, K={K_raw}, pH={ph}, soil_texture={soil_texture}")
         N, P, K = convert_mgkg_to_kgha(N_raw, P_raw, K_raw, soil_texture)
-        print(f"Converted NPK values: N={N}, P={P}, K={K}, pH={ph}")
+        print(f"Converted NPK values (kg/ha): N={N}, P={P}, K={K}, pH={ph}, soil_texture={soil_texture}")
     except Exception as e:
         print(f"NPK conversion error: {e}")
         raise HTTPException(status_code=400, detail=f"NPK conversion failed: {e}")
@@ -300,18 +309,32 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
 
     # Reject if values are out of range
     if not (NPK_MIN <= N <= NPK_MAX and NPK_MIN <= P <= NPK_MAX and NPK_MIN <= K <= NPK_MAX):
-        print(f"Input out of range: N={N}, P={P}, K={K}, pH={ph}")
+        print(f"Input out of range: N={N}, P={P}, K={K}, pH={ph}, soil_texture={soil_texture}")
         recommended_crop = "no_crop"
     elif not (PH_MIN <= ph <= PH_MAX):
-        print(f"pH out of range: {ph}")
+        print(f"pH out of range: {ph}, soil_texture={soil_texture}")
         recommended_crop = "no_crop"
     else:
-        # ------------ XGBOOST PREDICTION (4-FEATURE LOGIC) ------------
+        # ------------ XGBOOST PREDICTION (NUMERIC + SOIL ONE-HOT) ------------
         try:
-            # Debug: print input features
-            input_features = np.array([N, P, K, ph])
-            print(f"XGBoost input features: {input_features}")
-            probs = xgb_model.predict_proba([input_features])[0]
+            # 1. Numeric features (converted NPK + pH)
+            numeric_features = np.array([N, P, K, ph], dtype=float)
+
+            # 2. Ensure soil_encoded exists
+            if soil_encoded is None:
+                raise ValueError("soil_encoded is None but the model expects soil one-hot features")
+
+            # 3. Concatenate numeric + soil one-hot
+            full_features = np.concatenate([numeric_features, soil_encoded], axis=0)
+            full_features = full_features.reshape(1, -1)
+
+            print("xgb_model.n_features_in_ =",
+                  getattr(xgb_model, "n_features_in_", "unknown"))
+            print("XGBoost full_features shape:", full_features.shape)
+            print("XGBoost full_features values:", full_features)
+
+            # 4. Predict probabilities
+            probs = xgb_model.predict_proba(full_features)[0]
 
             top_idx = int(np.argmax(probs))
             top_prob = float(probs[top_idx])
@@ -325,25 +348,32 @@ async def predict(req: PredictRequest, authorization: str | None = Header(None))
                 crop_name = le_label.inverse_transform([idx])[0]
                 print(f"  - {crop_name}: {prob:.2%}")
 
-            print(f"🌾 Top 3 predictions:")
+            print("🌾 Top 3 predictions:")
             top3_indices = np.argsort(probs)[-3:][::-1]
             for i, idx in enumerate(top3_indices, 1):
                 crop_name = le_label.inverse_transform([idx])[0]
                 print(f"  {i}. {crop_name}: {probs[idx]:.2%}")
 
-            # Always recommend the top predicted crop (like the test script)
+            print(f"Final recommended crop: {pred_crop} (confidence: {crop_confidence:.2%})")
+            print(f"Companions: {companion_crops.get(pred_crop, [])}")
+            print(f"Avoids: {avoid_crops.get(pred_crop, [])}")
+
+            # Final result
             recommended_crop = pred_crop
             companions = companion_crops.get(pred_crop, [])
             avoids = avoid_crops.get(pred_crop, [])
 
         except Exception as e:
-            print("❌ XGBoost fallback:", e)
+            print("❌ XGBoost error:", e)
             traceback.print_exc()
             recommended_crop = "no_crop"
             companions = []
             avoids = []
             crop_confidence = None
+
+    print(f"Returning response: prediction={soil_texture}, recommended_crop={recommended_crop}, companions={companions}, avoids={avoids}, confidence={crop_confidence}")
     return {
+        "prediction": soil_texture,  # For frontend compatibility
         "soil_texture": soil_texture,
         "recommended_crop": recommended_crop,
         "companions": companions,
